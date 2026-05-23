@@ -144,6 +144,10 @@ class YueduApi : RestVerticle() {
         router.post("/reader3/getBookSource").coroutineHandler { bookSourceController.getBookSource(it) }
         router.get("/reader3/getBookSources").coroutineHandler { bookSourceController.getBookSources(it) }
         router.post("/reader3/getBookSources").coroutineHandler { bookSourceController.getBookSources(it) }
+        router.post("/reader3/getBookSourceSubscriptions").coroutineHandler { bookSourceController.getBookSourceSubscriptions(it) }
+        router.post("/reader3/saveBookSourceSubscription").coroutineHandler { bookSourceController.saveBookSourceSubscription(it) }
+        router.post("/reader3/deleteBookSourceSubscription").coroutineHandler { bookSourceController.deleteBookSourceSubscription(it) }
+        router.post("/reader3/updateBookSourceSubscription").coroutineHandler { bookSourceController.updateBookSourceSubscription(it) }
 
         router.post("/reader3/deleteAllBookSources").coroutineHandler { bookSourceController.deleteAllBookSources(it) }
         router.post("/reader3/deleteBookSource").coroutineHandler { bookSourceController.deleteBookSource(it) }

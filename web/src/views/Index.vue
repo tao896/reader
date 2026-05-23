@@ -205,9 +205,9 @@
               type="info"
               :effect="isNight ? 'dark' : 'light'"
               class="setting-btn"
-              @click="loadRemoteBookSource"
+              @click="showBookSourceSubscriptionDialog"
             >
-              远程书源
+              书源订阅
             </el-tag>
             <el-tag
               type="info"
@@ -705,6 +705,124 @@
       </div>
     </el-dialog>
     <el-dialog
+      title="书源订阅"
+      :visible.sync="showBookSourceSubscriptionDialogVisible"
+      :width="dialogWidth"
+      :top="dialogTop"
+      :fullscreen="collapseMenu"
+      :class="isWebApp && !isNight ? 'status-bar-light-bg-dialog' : ''"
+      v-if="$store.getters.isNormalPage"
+    >
+      <div class="source-container subscription-container">
+        <el-form
+          :inline="!collapseMenu"
+          :model="bookSourceSubscriptionForm"
+          size="small"
+        >
+          <el-form-item label="名称">
+            <el-input
+              v-model="bookSourceSubscriptionForm.name"
+              placeholder="可选"
+            ></el-input>
+          </el-form-item>
+          <el-form-item label="订阅链接" class="subscription-url-form-item">
+            <el-input
+              v-model="bookSourceSubscriptionForm.url"
+              placeholder="请输入书源订阅链接"
+            ></el-input>
+          </el-form-item>
+          <el-form-item>
+            <el-button
+              type="primary"
+              :loading="bookSourceSubscriptionSaving"
+              @click="saveBookSourceSubscription"
+              >保存订阅</el-button
+            >
+          </el-form-item>
+        </el-form>
+        <el-table
+          :data="bookSourceSubscriptions"
+          :height="dialogContentHeight - 42 - 60"
+          v-loading="bookSourceSubscriptionLoading"
+        >
+          <el-table-column
+            property="name"
+            label="名称"
+            min-width="120"
+          ></el-table-column>
+          <el-table-column property="url" label="订阅链接" min-width="220">
+            <template slot-scope="scope">
+              <el-link type="primary" :href="scope.row.url" target="_blank">
+                {{ scope.row.url }}
+              </el-link>
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" width="95">
+            <template slot-scope="scope">
+              <el-tag
+                size="mini"
+                :type="
+                  scope.row.lastStatus === 'success'
+                    ? 'success'
+                    : scope.row.lastStatus === 'error'
+                    ? 'danger'
+                    : 'info'
+                "
+              >
+                {{
+                  scope.row.lastStatus === "success"
+                    ? "成功"
+                    : scope.row.lastStatus === "error"
+                    ? "失败"
+                    : "未更新"
+                }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="书源数量" width="90">
+            <template slot-scope="scope">
+              {{ scope.row.lastSourceCount || 0 }}
+            </template>
+          </el-table-column>
+          <el-table-column label="最后更新" width="120">
+            <template slot-scope="scope">
+              {{
+                scope.row.lastSyncAt ? dateFormat(scope.row.lastSyncAt) : "-"
+              }}
+            </template>
+          </el-table-column>
+          <el-table-column
+            property="lastError"
+            label="错误信息"
+            min-width="160"
+          >
+          </el-table-column>
+          <el-table-column label="操作" width="120" fixed="right">
+            <template slot-scope="scope">
+              <el-button
+                type="text"
+                :loading="updatingBookSourceSubscriptionUrl === scope.row.url"
+                @click="updateBookSourceSubscription(scope.row)"
+                >更新</el-button
+              >
+              <el-button
+                type="text"
+                @click="deleteBookSourceSubscription(scope.row)"
+                >删除</el-button
+              >
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+      <div slot="footer" class="dialog-footer">
+        <el-button
+          size="medium"
+          @click="showBookSourceSubscriptionDialogVisible = false"
+          >关闭</el-button
+        >
+      </div>
+    </el-dialog>
+    <el-dialog
       :visible.sync="showBookSourceManageDialog"
       :width="dialogWidth"
       :top="dialogTop"
@@ -1046,6 +1164,18 @@ export default {
       checkAll: false,
       isIndeterminate: false,
       checkedSourceIndex: [],
+
+      defaultBookSourceSubscriptionUrl:
+        "https://shuyuan-api.yiove.com/redirect/shuyuan/20251014043613.json",
+      showBookSourceSubscriptionDialogVisible: false,
+      bookSourceSubscriptions: [],
+      bookSourceSubscriptionForm: {
+        name: "",
+        url: ""
+      },
+      bookSourceSubscriptionLoading: false,
+      bookSourceSubscriptionSaving: false,
+      updatingBookSourceSubscriptionUrl: "",
 
       showBookSourceManageDialog: false,
       manageSourceSelection: [],
@@ -1821,6 +1951,132 @@ export default {
         error => {
           this.$message.error(
             "读取远程书源文件内容失败 " + (error && error.toString())
+          );
+        }
+      );
+    },
+    showBookSourceSubscriptionDialog() {
+      this.showBookSourceSubscriptionDialogVisible = true;
+      if (!this.bookSourceSubscriptionForm.url) {
+        this.bookSourceSubscriptionForm.url = this.defaultBookSourceSubscriptionUrl;
+      }
+      this.loadBookSourceSubscriptions();
+    },
+    loadBookSourceSubscriptions() {
+      this.bookSourceSubscriptionLoading = true;
+      Axios.post(this.api + "/getBookSourceSubscriptions").then(
+        res => {
+          this.bookSourceSubscriptionLoading = false;
+          if (res.data.isSuccess) {
+            this.bookSourceSubscriptions = res.data.data || [];
+          }
+        },
+        error => {
+          this.bookSourceSubscriptionLoading = false;
+          this.$message.error(
+            "加载书源订阅失败 " + (error && error.toString())
+          );
+        }
+      );
+    },
+    saveBookSourceSubscription() {
+      const url = (this.bookSourceSubscriptionForm.url || "").trim();
+      if (!url) {
+        this.$message.error("请输入书源订阅链接");
+        return;
+      }
+      this.bookSourceSubscriptionSaving = true;
+      Axios.post(this.api + "/saveBookSourceSubscription", {
+        name: this.bookSourceSubscriptionForm.name,
+        url
+      }).then(
+        res => {
+          this.bookSourceSubscriptionSaving = false;
+          if (res.data.isSuccess) {
+            this.$message.success("保存书源订阅成功");
+            this.bookSourceSubscriptionForm = {
+              name: "",
+              url: this.defaultBookSourceSubscriptionUrl
+            };
+            this.loadBookSourceSubscriptions();
+          }
+          if (!res.data.isSuccess) {
+            this.loadBookSourceSubscriptions();
+          }
+        },
+        error => {
+          this.bookSourceSubscriptionSaving = false;
+          this.$message.error(
+            "保存书源订阅失败 " + (error && error.toString())
+          );
+        }
+      );
+    },
+    updateBookSourceSubscription(subscription) {
+      if (!subscription || !subscription.url) {
+        return;
+      }
+      this.updatingBookSourceSubscriptionUrl = subscription.url;
+      Axios.post(this.api + "/updateBookSourceSubscription", {
+        url: subscription.url
+      }).then(
+        res => {
+          this.updatingBookSourceSubscriptionUrl = "";
+          if (res.data.isSuccess) {
+            this.$message.success(
+              "更新书源订阅成功，导入 " +
+                (res.data.data.importCount || 0) +
+                " 个书源"
+            );
+            this.loadBookSourceSubscriptions();
+            this.loadBookSource(true);
+          }
+          if (!res.data.isSuccess) {
+            this.loadBookSourceSubscriptions();
+          }
+        },
+        error => {
+          this.updatingBookSourceSubscriptionUrl = "";
+          const message =
+            (error &&
+              error.response &&
+              error.response.data &&
+              error.response.data.errorMsg) ||
+            (error && error.toString());
+          this.$message.error("更新书源订阅失败 " + message);
+          this.loadBookSourceSubscriptions();
+        }
+      );
+    },
+    async deleteBookSourceSubscription(subscription) {
+      if (!subscription || !subscription.url) {
+        return;
+      }
+      const res = await this.$confirm(`确认要删除该书源订阅吗?`, "提示", {
+        confirmButtonText: "确定",
+        cancelButtonText: "取消",
+        type: "warning"
+      }).catch(() => {
+        return false;
+      });
+      if (!res) {
+        return;
+      }
+      Axios.post(this.api + "/deleteBookSourceSubscription", {
+        url: subscription.url
+      }).then(
+        res => {
+          if (res.data.isSuccess) {
+            this.$message.success("删除书源订阅成功");
+            this.loadBookSourceSubscriptions();
+          }
+          if (!res.data.isSuccess) {
+            this.loadBookSourceSubscriptions();
+          }
+        },
+        error => {
+          this.$message.error(
+            "删除书源订阅失败 " + (error && error.toString())
           );
         }
       );
@@ -3535,6 +3791,16 @@ export default {
   max-height: calc(var(--vh, 1vh) * 70 - 54px - 60px - 66px);
   overflow-y: auto;
   overflow-x: auto;
+}
+
+.subscription-container {
+  .subscription-url-form-item {
+    width: 52%;
+
+    >>>.el-form-item__content {
+      width: calc(100% - 78px);
+    }
+  }
 }
 
 .night {

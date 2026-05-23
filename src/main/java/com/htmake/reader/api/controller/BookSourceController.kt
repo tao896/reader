@@ -46,8 +46,11 @@ import io.legado.app.utils.MD5Utils
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.net.URL;
+import java.net.MalformedURLException;
 import java.util.UUID;
 import io.vertx.ext.web.client.WebClient
+import io.vertx.ext.web.client.HttpResponse
+import io.vertx.core.buffer.Buffer
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.core.env.Environment
 import java.io.File
@@ -67,8 +70,11 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.async
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.CoroutineScope
+import kotlin.coroutines.resume
+import kotlinx.coroutines.suspendCancellableCoroutine
 
 private val logger = KotlinLogging.logger {}
+private const val BOOK_SOURCE_SUBSCRIPTION_STORAGE_KEY = "bookSourceSubscriptions"
 
 class BookSourceController(coroutineContext: CoroutineContext): BaseController(coroutineContext) {
     private var webClient: WebClient
@@ -88,6 +94,251 @@ class BookSourceController(coroutineContext: CoroutineContext): BaseController(c
             }
         }
         return bookSourceList
+    }
+
+    private fun normalizeSubscriptionUrl(url: String?): String {
+        return url?.trim() ?: ""
+    }
+
+    private fun isValidSubscriptionUrl(url: String): Boolean {
+        return try {
+            val protocol = URL(url).protocol
+            protocol.equals("http", true) || protocol.equals("https", true)
+        } catch (e: MalformedURLException) {
+            false
+        }
+    }
+
+    private fun defaultSubscriptionName(url: String): String {
+        return try {
+            URL(url).host.ifEmpty { url }
+        } catch (e: Exception) {
+            url
+        }
+    }
+
+    private fun getUserBookSourceSubscriptions(userNameSpace: String): JsonArray {
+        return asJsonArray(getUserStorage(userNameSpace, BOOK_SOURCE_SUBSCRIPTION_STORAGE_KEY)) ?: JsonArray()
+    }
+
+    private fun saveUserBookSourceSubscriptions(userNameSpace: String, list: JsonArray) {
+        saveUserStorage(userNameSpace, BOOK_SOURCE_SUBSCRIPTION_STORAGE_KEY, list)
+    }
+
+    private fun findSubscriptionIndex(list: JsonArray, url: String): Int {
+        for (i in 0 until list.size()) {
+            if (normalizeSubscriptionUrl(list.getJsonObject(i).getString("url", "")).equals(url)) {
+                return i
+            }
+        }
+        return -1
+    }
+
+    private fun normalizeSubscription(subscription: JsonObject): JsonObject {
+        val now = System.currentTimeMillis()
+        val url = normalizeSubscriptionUrl(subscription.getString("url", ""))
+        val name = subscription.getString("name", "").trim().ifEmpty { defaultSubscriptionName(url) }
+        return JsonObject()
+            .put("name", name)
+            .put("url", url)
+            .put("createdAt", subscription.getLong("createdAt", now))
+            .put("updatedAt", subscription.getLong("updatedAt", now))
+            .put("lastSyncAt", subscription.getLong("lastSyncAt", 0L))
+            .put("lastStatus", subscription.getString("lastStatus", ""))
+            .put("lastError", subscription.getString("lastError", ""))
+            .put("lastSourceCount", subscription.getInteger("lastSourceCount", 0))
+    }
+
+    private suspend fun fetchSubscriptionBody(url: String): Pair<String?, String?> {
+        return suspendCancellableCoroutine { cont ->
+            webClient.getAbs(url).timeout(10000).send { result ->
+                if (result.failed()) {
+                    cont.resume(Pair(null, result.cause()?.message ?: "订阅请求失败"))
+                    return@send
+                }
+                val response: HttpResponse<Buffer> = result.result()
+                if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                    cont.resume(Pair(null, "HTTP ${response.statusCode()} ${response.statusMessage()}".trim()))
+                    return@send
+                }
+                val body = response.bodyAsString()
+                if (body.isNullOrBlank()) {
+                    cont.resume(Pair(null, "订阅内容为空"))
+                    return@send
+                }
+                cont.resume(Pair(body, null))
+            }
+        }
+    }
+
+    private suspend fun saveBookSourceObjects(userNameSpace: String, sources: List<BookSource>): Map<String, Any> {
+        var bookSourceList: JsonArray = getUserBookSourceJson(userNameSpace) ?: JsonArray()
+        var addCount = 0
+        var updateCount = 0
+        for (bookSource in sources) {
+            var existIndex = -1
+            for (i in 0 until bookSourceList.size()) {
+                val existedBookSource = bookSourceList.getJsonObject(i).mapTo(BookSource::class.java)
+                if (existedBookSource.bookSourceUrl.equals(bookSource.bookSourceUrl)) {
+                    existIndex = i
+                    break
+                }
+            }
+            if (existIndex >= 0) {
+                val sourceList = bookSourceList.getList()
+                sourceList.set(existIndex, JsonObject.mapFrom(bookSource))
+                bookSourceList = JsonArray(sourceList)
+                updateCount += 1
+            } else {
+                bookSourceList.add(JsonObject.mapFrom(bookSource))
+                addCount += 1
+            }
+        }
+        saveUserStorage(userNameSpace, "bookSource", bookSourceList)
+        return mapOf("importCount" to sources.size, "addCount" to addCount, "updateCount" to updateCount)
+    }
+
+    suspend fun getBookSourceSubscriptions(context: RoutingContext): ReturnData {
+        val returnData = ReturnData()
+        if (!checkAuth(context)) {
+            return returnData.setData("NEED_LOGIN").setErrorMsg("请登录后使用")
+        }
+        val userNameSpace = getUserNameSpace(context)
+        val subscriptionList = getUserBookSourceSubscriptions(userNameSpace)
+        val list = arrayListOf<Map<String, Any?>>()
+        for (i in 0 until subscriptionList.size()) {
+            list.add(normalizeSubscription(subscriptionList.getJsonObject(i)).map)
+        }
+        return returnData.setData(list)
+    }
+
+    suspend fun saveBookSourceSubscription(context: RoutingContext): ReturnData {
+        val returnData = ReturnData()
+        if (!checkAuth(context)) {
+            return returnData.setData("NEED_LOGIN").setErrorMsg("请登录后使用")
+        }
+        val body = context.bodyAsJson ?: JsonObject()
+        val url = normalizeSubscriptionUrl(body.getString("url", ""))
+        if (url.isEmpty()) {
+            return returnData.setErrorMsg("订阅链接不能为空")
+        }
+        if (!isValidSubscriptionUrl(url)) {
+            return returnData.setErrorMsg("订阅链接只支持 http/https")
+        }
+
+        val userNameSpace = getUserNameSpace(context)
+        val subscriptionList = getUserBookSourceSubscriptions(userNameSpace)
+        val now = System.currentTimeMillis()
+        val existIndex = findSubscriptionIndex(subscriptionList, url)
+        val existed = if (existIndex >= 0) subscriptionList.getJsonObject(existIndex) else JsonObject()
+        val subscription = normalizeSubscription(existed)
+            .put("name", body.getString("name", "").trim().ifEmpty { defaultSubscriptionName(url) })
+            .put("url", url)
+            .put("createdAt", existed.getLong("createdAt", now))
+            .put("updatedAt", now)
+
+        if (existIndex >= 0) {
+            val list = subscriptionList.getList()
+            list.set(existIndex, subscription)
+            saveUserBookSourceSubscriptions(userNameSpace, JsonArray(list))
+        } else {
+            subscriptionList.add(subscription)
+            saveUserBookSourceSubscriptions(userNameSpace, subscriptionList)
+        }
+        return returnData.setData(subscription.map)
+    }
+
+    suspend fun deleteBookSourceSubscription(context: RoutingContext): ReturnData {
+        val returnData = ReturnData()
+        if (!checkAuth(context)) {
+            return returnData.setData("NEED_LOGIN").setErrorMsg("请登录后使用")
+        }
+        val body = context.bodyAsJson ?: JsonObject()
+        val url = normalizeSubscriptionUrl(body.getString("url", ""))
+        if (url.isEmpty()) {
+            return returnData.setErrorMsg("订阅链接不能为空")
+        }
+
+        val userNameSpace = getUserNameSpace(context)
+        val subscriptionList = getUserBookSourceSubscriptions(userNameSpace)
+        val existIndex = findSubscriptionIndex(subscriptionList, url)
+        if (existIndex >= 0) {
+            subscriptionList.remove(existIndex)
+            saveUserBookSourceSubscriptions(userNameSpace, subscriptionList)
+        }
+        return returnData.setData("")
+    }
+
+    suspend fun updateBookSourceSubscription(context: RoutingContext): ReturnData {
+        val returnData = ReturnData()
+        if (!checkAuth(context)) {
+            return returnData.setData("NEED_LOGIN").setErrorMsg("请登录后使用")
+        }
+        val body = context.bodyAsJson ?: JsonObject()
+        val url = normalizeSubscriptionUrl(body.getString("url", ""))
+        if (url.isEmpty()) {
+            return returnData.setErrorMsg("订阅链接不能为空")
+        }
+        if (!isValidSubscriptionUrl(url)) {
+            return returnData.setErrorMsg("订阅链接只支持 http/https")
+        }
+
+        val userNameSpace = getUserNameSpace(context)
+        val subscriptionList = getUserBookSourceSubscriptions(userNameSpace)
+        val existIndex = findSubscriptionIndex(subscriptionList, url)
+        if (existIndex < 0) {
+            return returnData.setErrorMsg("订阅不存在")
+        }
+
+        val now = System.currentTimeMillis()
+        var subscription = normalizeSubscription(subscriptionList.getJsonObject(existIndex))
+            .put("lastSyncAt", now)
+        val (bodyString, fetchError) = fetchSubscriptionBody(url)
+        if (fetchError != null || bodyString == null) {
+            subscription = subscription
+                .put("lastStatus", "error")
+                .put("lastError", fetchError ?: "订阅请求失败")
+                .put("updatedAt", now)
+            val list = subscriptionList.getList()
+            list.set(existIndex, subscription)
+            saveUserBookSourceSubscriptions(userNameSpace, JsonArray(list))
+            return returnData.setErrorMsg(subscription.getString("lastError"))
+        }
+
+        val sources = BookSource.fromJsonArray(bodyString).getOrElse {
+            val errorMessage = it.localizedMessage ?: "订阅内容不是有效书源 JSON"
+            subscription = subscription
+                .put("lastStatus", "error")
+                .put("lastError", errorMessage)
+                .put("updatedAt", now)
+            val list = subscriptionList.getList()
+            list.set(existIndex, subscription)
+            saveUserBookSourceSubscriptions(userNameSpace, JsonArray(list))
+            return returnData.setErrorMsg(errorMessage)
+        }.filter { it.bookSourceUrl.isNotBlank() }
+
+        if (sources.isEmpty()) {
+            val errorMessage = "订阅内容未包含有效书源"
+            subscription = subscription
+                .put("lastStatus", "error")
+                .put("lastError", errorMessage)
+                .put("updatedAt", now)
+            val list = subscriptionList.getList()
+            list.set(existIndex, subscription)
+            saveUserBookSourceSubscriptions(userNameSpace, JsonArray(list))
+            return returnData.setErrorMsg(errorMessage)
+        }
+
+        val importResult = saveBookSourceObjects(userNameSpace, sources)
+        subscription = subscription
+            .put("lastStatus", "success")
+            .put("lastError", "")
+            .put("lastSourceCount", sources.size)
+            .put("updatedAt", now)
+        val list = subscriptionList.getList()
+        list.set(existIndex, subscription)
+        saveUserBookSourceSubscriptions(userNameSpace, JsonArray(list))
+        return returnData.setData(importResult + mapOf("subscription" to subscription.map))
     }
 
     suspend fun saveBookSource(context: RoutingContext): ReturnData {
