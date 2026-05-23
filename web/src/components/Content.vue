@@ -10,7 +10,8 @@ export default {
       currentSpeed: 1,
       audioVolume: 100,
       startTime: 0,
-      iframeStyle: {}
+      iframeStyle: {},
+      iframeInited: false
     };
   },
   props: [
@@ -136,7 +137,8 @@ export default {
     },
     isEpub() {
       return (
-        !this.error && this.readingBook.bookUrl.toLowerCase().endsWith(".epub")
+        !this.error &&
+        /^\/epub\/.*\.x?html?([?#].*)?$/i.test((this.content || "").trim())
       );
     },
     isCbz() {
@@ -189,6 +191,11 @@ export default {
     windowSize() {
       if (this.isEpub) {
         //
+      }
+    },
+    isEpub(val) {
+      if (val) {
+        this.$nextTick(() => this.initIframe());
       }
     },
     currentCustomFontFamily() {
@@ -404,6 +411,10 @@ export default {
       );
     },
     initIframe() {
+      if (this.iframeInited) {
+        return;
+      }
+      this.iframeInited = true;
       window.addEventListener("message", event => {
         if (
           this.$refs.iframe &&

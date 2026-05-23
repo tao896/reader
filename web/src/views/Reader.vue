@@ -1011,6 +1011,7 @@ export default {
         !this.error &&
         !this.isEpub &&
         !this.isCbz &&
+        !this.isEpubBook &&
         (this.content || "").indexOf("<img") >= 0
       );
     },
@@ -1018,10 +1019,12 @@ export default {
       return !this.error && this.$store.getters.readingBook.type === 1;
     },
     isEpub() {
-      return (
-        !this.error &&
-        this.$store.getters.readingBook.bookUrl.toLowerCase().endsWith(".epub")
-      );
+      return !this.error && this.isEpubIframeContent(this.content);
+    },
+    isEpubBook() {
+      return ((this.$store.getters.readingBook || {}).bookUrl || "")
+        .toLowerCase()
+        .endsWith(".epub");
     },
     isCbz() {
       return (
@@ -1048,6 +1051,9 @@ export default {
     }
   },
   methods: {
+    isEpubIframeContent(content) {
+      return /^\/epub\/.*\.x?html?([?#].*)?$/i.test((content || "").trim());
+    },
     init(refresh) {
       if (this.$store.getters.readingBook) {
         if (
@@ -1295,7 +1301,7 @@ export default {
       );
     },
     filterContent(content) {
-      if (this.isEpub || this.isAudio) {
+      if (this.isEpubIframeContent(content) || this.isAudio) {
         return content;
       }
       if (!content) {

@@ -538,19 +538,20 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
                 }
 
                 val epubRootDir = bookInfo.getEpubRootDir()
-                var chapterFilePath = getWorkDir(bookInfo.bookUrl, "index", epubRootDir, chapterInfo.url)
+                val chapterFilePath = if (epubRootDir.isEmpty()) {
+                    getWorkDir(bookInfo.bookUrl, "index", chapterInfo.url)
+                } else {
+                    getWorkDir(bookInfo.bookUrl, "index", epubRootDir, chapterInfo.url)
+                }
                 logger.info("chapterFilePath: {} {}", chapterFilePath, epubRootDir)
                 if (!File(chapterFilePath).exists()) {
                     return returnData.setErrorMsg("章节文件不存在")
                 }
-                // 处理 js 注入脚本
-                // BookConfig.injectJavascriptToEpubChapter(chapterFilePath);
 
-                // 直接返回 html访问地址
-                if (epubRootDir.isEmpty()) {
-                    content = bookInfo.bookUrl.replace("storage/data/", "/epub/") + "/index/" + chapterInfo.url
+                content = if (epubRootDir.isEmpty()) {
+                    bookInfo.bookUrl.replace("storage/data/", "/epub/") + "/index/" + chapterInfo.url
                 } else {
-                    content = bookInfo.bookUrl.replace("storage/data/", "/epub/") + "/index/" + epubRootDir + "/" + chapterInfo.url
+                    bookInfo.bookUrl.replace("storage/data/", "/epub/") + "/index/" + epubRootDir + "/" + chapterInfo.url
                 }
                 return returnData.setData(content)
             } else if (bookInfo.isCbz()) {
@@ -571,12 +572,13 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
                 }
                 content = "<img src='" + fileUrl + "' />"
                 return returnData.setData(content)
+            } else {
+                var bookContent = LocalBook.getContent(bookInfo, chapterInfo)
+                if (bookContent == null) {
+                    return returnData.setErrorMsg("获取章节内容失败")
+                }
+                content = bookContent
             }
-            var bookContent = LocalBook.getContent(bookInfo, chapterInfo)
-            if (bookContent == null) {
-                return returnData.setErrorMsg("获取章节内容失败")
-            }
-            content = bookContent
         } else {
             // 查找章节缓存
             var chapterCacheFile: File? = null
