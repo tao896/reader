@@ -11,6 +11,12 @@
   >
     <div class="tool-bar" :style="leftBarTheme">
       <div class="tools">
+        <div class="tool-icon" @click="toShelf">
+          <div class="iconfont">
+            &#58920;
+          </div>
+          <div class="icon-text">首页</div>
+        </div>
         <el-popover
           placement="right"
           :width="popperWidth"
@@ -103,16 +109,6 @@
             <div class="icon-text">设置</div>
           </div>
         </el-popover>
-        <div
-          class="tool-icon"
-          @click="toShelf"
-          :style="$store.state.miniInterface ? { order: -1 } : {}"
-        >
-          <div class="iconfont">
-            &#58920;
-          </div>
-          <div class="icon-text">首页</div>
-        </div>
         <div
           class="tool-icon"
           @click="toTop(0)"
@@ -3097,19 +3093,34 @@ export default {
     padding-top: env(safe-area-inset-top) !important;
     left: 50%;
     z-index: 2001;
+    border-radius: 0 0 8px 8px;
+    overflow: hidden;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
 
     .tools {
       display: flex;
       flex-direction: column;
 
       .tool-icon {
+        position: relative;
         font-size: 18px;
         width: 58px;
-        height: 48px;
+        height: 52px;
         text-align: center;
-        padding-top: 12px;
+        padding-top: 10px;
+        box-sizing: border-box;
         cursor: pointer;
         outline: none;
+        transition: background-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+
+        &:hover {
+          transform: translateY(-1px);
+        }
+
+        &:active {
+          transform: translateY(0);
+        }
 
         .iconfont {
           font-family: iconfont;
@@ -3143,6 +3154,10 @@ export default {
     bottom: 0;
     right: 50%;
     z-index: 100;
+    border-radius: 8px 8px 0 0;
+    overflow: visible;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
 
     .progress {
       padding: 10px 36px;
@@ -3171,9 +3186,12 @@ export default {
       right: 55px;
       width: 300px;
       background: inherit;
+      border-radius: 8px;
 
       .cache-content-btn {
         cursor: pointer;
+        padding: 4px 6px;
+        border-radius: 4px;
       }
     }
 
@@ -3189,13 +3207,22 @@ export default {
         line-height: 32px;
         width: 36px;
         height: 36px;
-        border-radius: 100%;
+        border-radius: 8px;
         display: block;
         cursor: pointer;
         text-align: center;
         vertical-align: middle;
         pointer-events: all;
         margin-top: 20px;
+        transition: transform 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+
+        &:hover {
+          transform: translateY(-1px);
+        }
+
+        &:active {
+          transform: translateY(0);
+        }
 
         .el-icon-top, .el-icon-bottom, .el-icon-info, .el-icon-search, .el-icon-collection-tag {
           line-height: 36px;
@@ -3215,13 +3242,22 @@ export default {
         line-height: 32px;
         width: 36px;
         height: 36px;
-        border-radius: 100%;
+        border-radius: 8px;
         display: block;
         cursor: pointer;
         text-align: center;
         vertical-align: middle;
         pointer-events: all;
         margin-top: 20px;
+        transition: transform 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+
+        &:hover {
+          transform: translateY(-1px);
+        }
+
+        &:active {
+          transform: translateY(0);
+        }
 
         .el-icon-refresh-right, .el-icon-headset, .el-icon-view {
           line-height: 36px;
@@ -3244,16 +3280,20 @@ export default {
       .tool-icon {
         font-size: 18px;
         width: 42px;
-        height: 31px;
-        padding-top: 12px;
+        height: 42px;
+        padding-top: 8px;
+        box-sizing: border-box;
         text-align: center;
         align-items: center;
         cursor: pointer;
         outline: none;
         margin-top: -1px;
+        transition: background-color 0.18s ease, color 0.18s ease;
 
         &.progress-text {
-          font-size: 16px;
+          font-size: 13px;
+          line-height: 1.25;
+          padding: 7px 4px 0;
         }
 
         .iconfont {
@@ -3474,13 +3514,18 @@ export default {
   }
 
   >>>.tool-icon {
-    border: 1px solid rgba(0, 0, 0, 0.1);
+    border: 1px solid rgba(0, 0, 0, 0.08);
     margin-top: -1px;
-    color: #000;
+    color: #2c2c2c;
 
     .icon-text {
-      color: rgba(0, 0, 0, 0.4);
+      color: rgba(0, 0, 0, 0.48);
     }
+  }
+
+  >>>.tool-icon:hover {
+    background: rgba(0, 0, 0, 0.045);
+    color: #111;
   }
 
   >>>.progress-tip {
@@ -3489,6 +3534,12 @@ export default {
 
   >>>.cache-content-zone {
     color: rgba(0, 0, 0, 0.4);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.08);
+
+    .cache-content-btn:hover {
+      background: rgba(0, 0, 0, 0.055);
+      color: rgba(0, 0, 0, 0.72);
+    }
   }
 
   >>>.float-left-btn-zone {
@@ -3497,6 +3548,15 @@ export default {
 
   >>>.float-right-btn-zone {
     color: #121212;
+  }
+
+  >>>.float-btn {
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.12);
+  }
+
+  >>>.float-btn:hover {
+    background: rgba(0, 0, 0, 0.055) !important;
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.16);
   }
 
   >>>.reader-bar-inner {
@@ -3512,7 +3572,7 @@ export default {
   }
 
   >>>.chapter {
-    border: 1px solid #d8d8d8;
+    border: 1px solid #dedede;
     color: #262626;
   }
 
@@ -3535,13 +3595,18 @@ export default {
   }
 
   >>>.tool-icon {
-    border: 1px solid #444;
+    border: 1px solid #3b3b3b;
     margin-top: -1px;
-    color: #666;
+    color: #777;
 
     .icon-text {
-      color: #666;
+      color: #777;
     }
+  }
+
+  >>>.tool-icon:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: #999;
   }
 
   >>>.progress-tip {
@@ -3550,6 +3615,12 @@ export default {
 
   >>>.cache-content-zone {
     color: #666;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+
+    .cache-content-btn:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: #999;
+    }
   }
 
   >>>.float-left-btn-zone {
@@ -3558,6 +3629,15 @@ export default {
 
   >>>.float-right-btn-zone {
     color: #666;
+  }
+
+  >>>.float-btn {
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.34);
+  }
+
+  >>>.float-btn:hover {
+    background: rgba(255, 255, 255, 0.07) !important;
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.44);
   }
 
   >>>.reader-bar-inner {
@@ -3625,6 +3705,7 @@ export default {
     left: 0;
     width: 100vw;
     margin-left: 0 !important;
+    border-radius: 0;
 
     .tools {
       flex-direction: row;
@@ -3639,6 +3720,7 @@ export default {
     right: 0;
     width: 100vw;
     margin-right: 0 !important;
+    border-radius: 0;
 
     .cache-content-zone {
       position: relative;
@@ -3675,7 +3757,7 @@ export default {
       .tool-icon {
         border: none;
         width: auto;
-        padding: 0;
+        padding: 0 6px;
         height: 45px;
         line-height: 45px;
         .iconfont {
