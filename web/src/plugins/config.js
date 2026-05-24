@@ -130,6 +130,110 @@ const settings = {
       body: "#f7f7f7 repeat",
       content: "#fff repeat",
       popup: "#f7f7f7 repeat"
+    },
+    {
+      name: "墨韵纸书",
+      scope: "pc",
+      pcOnly: true,
+      themeType: "day",
+      preview: ["#f5f1e8", "#fffaf0", "#b94d2c", "#2f6f73"],
+      body: "linear-gradient(135deg, #f5f1e8 0%, #ede4d4 100%)",
+      content: {
+        backgroundColor: "#fffaf0",
+        backgroundImage:
+          "linear-gradient(180deg, rgba(255,255,255,0.74), rgba(244,235,218,0.72))",
+        boxShadow: "0 22px 70px rgba(90, 62, 28, 0.16)"
+      },
+      popup: "rgba(255, 252, 245, 0.94)",
+      popupPure: "#fffaf0",
+      fontColor: "#25201b"
+    },
+    {
+      name: "冷静效率",
+      scope: "pc",
+      pcOnly: true,
+      themeType: "day",
+      preview: ["#f4f6f8", "#ffffff", "#2563eb", "#0f9f8f"],
+      body: "linear-gradient(135deg, #f4f6f8 0%, #e8edf1 100%)",
+      content: {
+        backgroundColor: "#ffffff",
+        backgroundImage:
+          "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(240,245,248,0.88))",
+        boxShadow: "0 18px 54px rgba(42, 59, 74, 0.14)"
+      },
+      popup: "rgba(255, 255, 255, 0.96)",
+      popupPure: "#ffffff",
+      fontColor: "#18212b"
+    },
+    {
+      name: "夜航阅读",
+      scope: "pc",
+      pcOnly: true,
+      themeType: "night",
+      preview: ["#11151c", "#222c3b", "#f5b849", "#58d5c9"],
+      body: "linear-gradient(135deg, #11151c 0%, #1a2130 100%)",
+      content: {
+        backgroundColor: "#222c3b",
+        backgroundImage:
+          "linear-gradient(180deg, rgba(36,45,61,0.98), rgba(20,25,34,0.92))",
+        boxShadow: "0 28px 80px rgba(0, 0, 0, 0.36)"
+      },
+      popup: "rgba(28, 35, 48, 0.94)",
+      popupPure: "#222c3b",
+      fontColor: "#e9edf2"
+    },
+    {
+      name: "玻璃晨雾",
+      scope: "pc",
+      pcOnly: true,
+      themeType: "day",
+      preview: ["#edf7f8", "#ffffff", "#0284a8", "#d65b7f"],
+      body: "linear-gradient(135deg, #edf7f8 0%, #f8f1ee 100%)",
+      content: {
+        backgroundColor: "rgba(255, 255, 255, 0.82)",
+        backgroundImage:
+          "linear-gradient(180deg, rgba(255,255,255,0.78), rgba(224,244,244,0.66))",
+        boxShadow: "0 24px 70px rgba(61, 113, 125, 0.19)",
+        backdropFilter: "blur(18px)"
+      },
+      popup: "rgba(255, 255, 255, 0.66)",
+      popupPure: "rgba(255, 255, 255, 0.86)",
+      fontColor: "#1e2d35"
+    },
+    {
+      name: "活力漫画",
+      scope: "pc",
+      pcOnly: true,
+      themeType: "day",
+      preview: ["#fff6d7", "#ffffff", "#ff4d5e", "#1d85ff"],
+      body: "linear-gradient(135deg, #fff6d7 0%, #d8f4ff 100%)",
+      content: {
+        backgroundColor: "#fffef9",
+        backgroundImage:
+          "linear-gradient(180deg, rgba(255,255,255,1), rgba(255,240,184,0.55))",
+        boxShadow: "8px 8px 0 rgba(22, 22, 22, 0.16)",
+        border: "2px solid rgba(22, 22, 22, 0.22)"
+      },
+      popup: "#ffffff",
+      popupPure: "#ffffff",
+      fontColor: "#161616"
+    },
+    {
+      name: "静谧森林",
+      scope: "pc",
+      pcOnly: true,
+      themeType: "day",
+      preview: ["#eef4e5", "#fbfff1", "#3f7d4a", "#a86f35"],
+      body: "linear-gradient(135deg, #eef4e5 0%, #dfe8d1 100%)",
+      content: {
+        backgroundColor: "#fbfff1",
+        backgroundImage:
+          "linear-gradient(180deg, rgba(253,255,247,0.96), rgba(224,235,207,0.72))",
+        boxShadow: "0 24px 62px rgba(51, 86, 50, 0.17)"
+      },
+      popup: "rgba(253, 255, 247, 0.94)",
+      popupPure: "#fbfff1",
+      fontColor: "#223126"
     }
   ],
   fonts: [

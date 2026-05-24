@@ -175,13 +175,15 @@ export default new Vuex.Store({
     setConfig(state, config) {
       delete config.name;
       delete config.configDefaultType;
-      if (
-        config.theme !== settings.defaultNightTheme &&
-        config.theme !== "custom"
-      ) {
-        config.themeType = "day";
-      } else if (config.theme === settings.defaultNightTheme) {
-        config.themeType = "night";
+      if (config.theme !== "custom") {
+        const themeConfig = settings.themes[config.theme] || {};
+        if (themeConfig.themeType) {
+          config.themeType = themeConfig.themeType;
+        } else if (config.theme === settings.defaultNightTheme) {
+          config.themeType = "night";
+        } else {
+          config.themeType = "day";
+        }
       }
       state.config = config;
       // 同步设置到 customConfig
@@ -530,10 +532,17 @@ export default new Vuex.Store({
               : "") + (state.config.popupColor || "#ede7da")
         };
       } else {
+        const selectedTheme = settings.themes[state.config.theme] || {};
+        const themeIndex =
+          state.miniInterface && selectedTheme.pcOnly
+            ? selectedTheme.themeType === "night"
+              ? settings.defaultNightTheme
+              : 0
+            : state.config.theme;
         const config = {
-          ...settings.themes[state.config.theme]
+          ...settings.themes[themeIndex]
         };
-        config.popupPure = config.popup;
+        config.popupPure = config.popupPure || config.popup;
         if (state.miniInterface && state.config.isNormalPage) {
           config.body =
             "linear-gradient(to bottom,rgba(0,0,0,.2) 0,transparent 36px), " +

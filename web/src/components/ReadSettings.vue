@@ -106,6 +106,29 @@
             >
           </div>
         </li>
+        <li v-if="!$store.state.miniInterface">
+          <span class="setting-item-title">PC样式</span>
+          <div class="selection-zone pc-theme-zone">
+            <span
+              class="pc-theme-item"
+              v-for="theme in pcThemeColors"
+              :key="theme.index"
+              ref="themes"
+              @click="setConfig('theme', theme.index)"
+              :class="{ selected: config.theme === theme.index }"
+              :title="theme.name"
+            >
+              <span class="pc-theme-swatches">
+                <i
+                  v-for="(color, colorIndex) in theme.preview"
+                  :key="colorIndex"
+                  :style="{ background: color }"
+                ></i>
+              </span>
+              <span class="pc-theme-name">{{ theme.name }}</span>
+            </span>
+          </div>
+        </li>
         <li v-if="config.theme === 'custom'">
           <span class="setting-item-title">自定义</span>
           <div class="custom-theme">
@@ -478,6 +501,13 @@ export default {
           background: "rgba(255, 255, 255, 0.8)"
         }
       ],
+      pcThemeColors: settings.themes
+        .map((theme, index) => ({
+          index,
+          name: theme.name,
+          preview: theme.preview || []
+        }))
+        .filter(theme => theme.name && theme.preview.length),
       builtinBG: [
         { src: "bg/山水画.jpg" },
         { src: "bg/山水墨影.jpg" },
@@ -1067,6 +1097,52 @@ export default {
           }
         }
 
+        .pc-theme-zone {
+          padding-top: 1px;
+        }
+
+        .pc-theme-item {
+          width: 118px;
+          height: 42px;
+          margin-right: 12px;
+          margin-bottom: 8px;
+          padding: 5px 8px;
+          border-radius: 4px;
+          display: inline-flex;
+          align-items: center;
+          cursor: pointer;
+          vertical-align: middle;
+          position: relative;
+        }
+
+        .pc-theme-swatches {
+          width: 32px;
+          height: 32px;
+          margin-right: 8px;
+          border-radius: 4px;
+          overflow: hidden;
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+
+          i {
+            display: block;
+          }
+        }
+
+        .pc-theme-name {
+          display: inline-block;
+          width: 62px;
+          line-height: 16px;
+          font-size: 13px;
+          white-space: normal;
+          color: inherit;
+        }
+
+        .pc-theme-swatches,
+        .pc-theme-name {
+          margin-bottom: 0;
+        }
+
         .selected {
           color: #ed4259;
 
@@ -1150,6 +1226,11 @@ export default {
     background: rgba(45, 45, 45, 0.5);
   }
 
+  >>>.pc-theme-item {
+    border: 1px solid #666;
+    background: rgba(45, 45, 45, 0.5);
+  }
+
   >>>.resize {
     border: 1px solid #666;
     background: rgba(45, 45, 45, 0.5);
@@ -1175,6 +1256,11 @@ export default {
   }
 
   .span-item {
+    background: rgba(255, 255, 255, 0.5);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+  }
+
+  >>>.pc-theme-item {
     background: rgba(255, 255, 255, 0.5);
     border: 1px solid rgba(0, 0, 0, 0.1);
   }

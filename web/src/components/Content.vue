@@ -159,6 +159,7 @@ export default {
         fontSize: this.$store.getters.config.fontSize + "px",
         fontWeight: this.$store.getters.config.fontWeight || undefined,
         color:
+          this.$store.getters.currentThemeConfig.fontColor ||
           this.$store.getters.config.fontColor ||
           (this.$store.getters.isNight ? "#666" : "#262626"),
         ...this.$store.getters.currentFontFamily,
