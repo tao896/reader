@@ -146,7 +146,21 @@ const settings = {
       },
       popup: "rgba(255, 252, 245, 0.94)",
       popupPure: "#fffaf0",
-      fontColor: "#25201b"
+      fontColor: "#25201b",
+      shelf: {
+        page: "#f5f1e8",
+        nav: "rgba(255, 252, 245, 0.94)",
+        panel: "rgba(255, 250, 240, 0.96)",
+        card: "rgba(255, 255, 255, 0.68)",
+        cardHover: "#fffaf0",
+        text: "#25201b",
+        muted: "#756b5d",
+        line: "rgba(64, 45, 24, 0.14)",
+        accent: "#b94d2c",
+        shadow: "0 22px 70px rgba(90, 62, 28, 0.16)",
+        cardShadow: "0 12px 34px rgba(90, 62, 28, 0.12)",
+        input: "#fffaf0"
+      }
     },
     {
       name: "冷静效率",
@@ -163,7 +177,21 @@ const settings = {
       },
       popup: "rgba(255, 255, 255, 0.96)",
       popupPure: "#ffffff",
-      fontColor: "#18212b"
+      fontColor: "#18212b",
+      shelf: {
+        page: "#f4f6f8",
+        nav: "rgba(255, 255, 255, 0.96)",
+        panel: "#ffffff",
+        card: "#ffffff",
+        cardHover: "#eef3f6",
+        text: "#18212b",
+        muted: "#667481",
+        line: "rgba(21, 37, 51, 0.12)",
+        accent: "#2563eb",
+        shadow: "0 18px 54px rgba(42, 59, 74, 0.14)",
+        cardShadow: "0 10px 26px rgba(42, 59, 74, 0.1)",
+        input: "#f7fafc"
+      }
     },
     {
       name: "夜航阅读",
@@ -180,7 +208,21 @@ const settings = {
       },
       popup: "rgba(28, 35, 48, 0.94)",
       popupPure: "#222c3b",
-      fontColor: "#e9edf2"
+      fontColor: "#e9edf2",
+      shelf: {
+        page: "#11151c",
+        nav: "rgba(28, 35, 48, 0.94)",
+        panel: "#1a2130",
+        card: "rgba(34, 44, 59, 0.86)",
+        cardHover: "#222c3b",
+        text: "#e9edf2",
+        muted: "#9aa8b8",
+        line: "rgba(231, 238, 245, 0.13)",
+        accent: "#f5b849",
+        shadow: "0 28px 80px rgba(0, 0, 0, 0.36)",
+        cardShadow: "0 14px 36px rgba(0, 0, 0, 0.28)",
+        input: "#222c3b"
+      }
     },
     {
       name: "玻璃晨雾",
@@ -198,7 +240,21 @@ const settings = {
       },
       popup: "rgba(255, 255, 255, 0.66)",
       popupPure: "rgba(255, 255, 255, 0.86)",
-      fontColor: "#1e2d35"
+      fontColor: "#1e2d35",
+      shelf: {
+        page: "#edf7f8",
+        nav: "rgba(255, 255, 255, 0.6)",
+        panel: "rgba(255, 255, 255, 0.7)",
+        card: "rgba(255, 255, 255, 0.58)",
+        cardHover: "rgba(255, 255, 255, 0.82)",
+        text: "#1e2d35",
+        muted: "#60747b",
+        line: "rgba(56, 94, 103, 0.18)",
+        accent: "#0284a8",
+        shadow: "0 24px 70px rgba(61, 113, 125, 0.19)",
+        cardShadow: "0 14px 36px rgba(61, 113, 125, 0.14)",
+        input: "rgba(255, 255, 255, 0.76)"
+      }
     },
     {
       name: "活力漫画",
@@ -216,7 +272,21 @@ const settings = {
       },
       popup: "#ffffff",
       popupPure: "#ffffff",
-      fontColor: "#161616"
+      fontColor: "#161616",
+      shelf: {
+        page: "#fff6d7",
+        nav: "#ffffff",
+        panel: "#fffef9",
+        card: "#ffffff",
+        cardHover: "#fff0b8",
+        text: "#161616",
+        muted: "#5d5963",
+        line: "rgba(22, 22, 22, 0.22)",
+        accent: "#ff4d5e",
+        shadow: "8px 8px 0 rgba(22, 22, 22, 0.16)",
+        cardShadow: "6px 6px 0 rgba(22, 22, 22, 0.14)",
+        input: "#fffef9"
+      }
     },
     {
       name: "静谧森林",
@@ -233,7 +303,21 @@ const settings = {
       },
       popup: "rgba(253, 255, 247, 0.94)",
       popupPure: "#fbfff1",
-      fontColor: "#223126"
+      fontColor: "#223126",
+      shelf: {
+        page: "#eef4e5",
+        nav: "rgba(253, 255, 247, 0.94)",
+        panel: "#fbfff1",
+        card: "rgba(253, 255, 247, 0.82)",
+        cardHover: "#fbfff1",
+        text: "#223126",
+        muted: "#68745d",
+        line: "rgba(52, 81, 48, 0.17)",
+        accent: "#3f7d4a",
+        shadow: "0 24px 62px rgba(51, 86, 50, 0.17)",
+        cardShadow: "0 13px 34px rgba(51, 86, 50, 0.12)",
+        input: "#fbfff1"
+      }
     }
   ],
   fonts: [
