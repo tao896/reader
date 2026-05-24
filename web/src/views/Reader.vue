@@ -527,6 +527,7 @@ export default {
   },
   activated() {
     this.init();
+    this.consumeReaderPanelQuery();
     window.addEventListener("keydown", this.keydownHandler);
     if (this.title) {
       document.title =
@@ -1049,6 +1050,27 @@ export default {
   methods: {
     isEpubIframeContent(content) {
       return /^\/epub\/.*\.x?html?([?#].*)?$/i.test((content || "").trim());
+    },
+    consumeReaderPanelQuery() {
+      const panel = this.$route.query && this.$route.query.panel;
+      if (panel !== "catalog" && panel !== "source") {
+        return;
+      }
+      this.$nextTick(() => {
+        if (panel === "catalog") {
+          this.popCataVisible = true;
+        } else if (panel === "source") {
+          this.popBookSourceVisible = true;
+        }
+      });
+      const query = { ...this.$route.query };
+      delete query.panel;
+      this.$router
+        .replace({
+          path: this.$route.path,
+          query
+        })
+        .catch(() => {});
     },
     init(refresh) {
       if (this.$store.getters.readingBook) {

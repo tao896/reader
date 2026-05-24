@@ -5,7 +5,8 @@
     :class="{
       night: isNight,
       day: !isNight,
-      'pc-shelf-theme': hasPcShelfTheme
+      'pc-shelf-theme': hasPcShelfTheme,
+      'modern-shelf-layout': showModernShelf
     }"
   >
     <div
@@ -21,457 +22,647 @@
       v-if="$store.getters.isNormalPage"
     >
       <div class="navigation-inner-wrapper">
-        <div class="navigation-title">
-          阅读
-          <span class="version-text" @click="updateForce">{{
-            $store.state.version
-          }}</span>
-        </div>
-        <div class="navigation-sub-title">
-          清风不识字，何故乱翻书
-        </div>
-        <div class="search-wrapper">
-          <el-input
-            size="mini"
-            placeholder="搜索书籍"
-            v-model="search"
-            class="search-input"
-            @keyup.enter.native="searchBook(1)"
-          >
-            <i slot="prefix" class="el-input__icon el-icon-search"></i>
-          </el-input>
-        </div>
-        <div class="setting-wrapper search-setting">
-          <div class="setting-title">
-            搜索设置
+        <div class="modern-nav" v-if="showModernShelf">
+          <div class="modern-brand">
+            <div class="modern-brand-mark">阅</div>
+            <div>
+              <h1>阅读</h1>
+              <p>个人书架中心</p>
+            </div>
           </div>
-          <div class="setting-item">
-            <el-select
-              size="mini"
-              v-model="searchConfig.searchType"
-              class="setting-select"
-              filterable
-              placeholder="请选择搜索方式"
+          <div class="modern-nav-section">
+            <div class="modern-nav-title">书架</div>
+            <button class="modern-nav-item active" @click="backToShelf">
+              <span>▦</span>
+              <em>全部书籍</em>
+              <strong>{{ shelfBooks.length }}</strong>
+            </button>
+            <button
+              class="modern-nav-item"
+              :class="{ disabled: !modernCurrentBook.bookUrl }"
+              @click="toDetail(modernCurrentBook)"
             >
-              <el-option
-                v-for="(item, index) in searchTypeList"
-                :key="'search-type-' + index"
-                :label="item.name"
-                :value="item.value"
-              >
-              </el-option>
-            </el-select>
+              <span>◷</span>
+              <em>最近阅读</em>
+              <strong>{{ modernCurrentBook.bookUrl ? 1 : 0 }}</strong>
+            </button>
+            <button class="modern-nav-item" @click="backToShelf">
+              <span>↥</span>
+              <em>追更更新</em>
+              <strong>{{ modernUnreadBookCount }}</strong>
+            </button>
+            <button class="modern-nav-item" @click="showBookGroup = -2">
+              <span>▣</span>
+              <em>本地书籍</em>
+              <strong>{{ getShowShelfBooks(-2).length }}</strong>
+            </button>
+            <button class="modern-nav-item" @click="showBookGroup = -3">
+              <span>◉</span>
+              <em>音频</em>
+              <strong>{{ getShowShelfBooks(-3).length }}</strong>
+            </button>
           </div>
-          <div
-            class="setting-item"
-            v-show="searchConfig.searchType === 'single'"
-          >
-            <el-select
-              size="mini"
-              v-model="searchConfig.bookSourceUrl"
-              class="setting-select"
-              filterable
-              placeholder="请选择搜索书源"
-            >
-              <el-option
-                v-for="(item, index) in bookSourceList"
-                :key="'source-' + index"
-                :label="item.bookSourceName"
-                :value="item.bookSourceUrl"
-              >
-              </el-option>
-            </el-select>
-          </div>
-          <div
-            class="setting-item"
-            v-show="searchConfig.searchType !== 'single'"
-          >
-            <el-select
-              size="mini"
-              v-model="searchConfig.bookSourceGroup"
-              class="setting-select"
-              filterable
-              placeholder="请选择搜索书源分组"
-            >
-              <el-option
-                v-for="(item, index) in bookSourceGroupList"
-                :key="'source-group-' + index"
-                :label="item.name + ' (' + item.count + ')'"
-                :value="item.value"
-              >
-              </el-option>
-            </el-select>
-          </div>
-          <div
-            class="setting-item"
-            v-show="searchConfig.searchType !== 'single'"
-          >
-            <el-select
-              size="mini"
-              v-model="searchConfig.concurrentCount"
-              class="setting-select"
-              filterable
-              placeholder="请选择并发线程"
-            >
-              <el-option
-                v-for="(item, index) in concurrentList"
-                :key="'source-' + index"
-                :label="item + '并发线程'"
-                :value="item"
-              >
-              </el-option>
-            </el-select>
-          </div>
-        </div>
-        <div class="recent-wrapper">
-          <div class="recent-title">
-            最近阅读
-          </div>
-          <div class="reading-recent">
-            <el-tag
-              type="warning"
-              :effect="isNight ? 'dark' : 'light'"
-              class="recent-book"
-              @click="toDetail(readingRecent)"
-              :class="{ 'no-point': readingRecent.bookUrl == '' }"
-            >
-              {{ readingRecent.name }}
-            </el-tag>
-          </div>
-        </div>
-        <div class="setting-wrapper">
-          <div class="setting-title">
-            后端设定
-          </div>
-          <div class="setting-item">
-            <el-tag
-              :type="connectType"
-              :effect="isNight ? 'dark' : 'light'"
-              class="setting-connect"
-              :class="{ 'no-point': connecting }"
-              @click="setIP"
-            >
-              {{ connectStatus }}
-            </el-tag>
-          </div>
-        </div>
-        <div class="setting-wrapper">
-          <div class="setting-title">
-            书源设置
-          </div>
-          <div class="setting-item">
-            <el-tag
-              type="info"
-              :effect="isNight ? 'dark' : 'light'"
-              class="setting-btn"
+          <div class="modern-nav-section">
+            <div class="modern-nav-title">管理</div>
+            <button
+              class="modern-nav-item"
               @click="showBookSourceManageDialog = true"
             >
-              书源管理
-            </el-tag>
+              <span>⌘</span>
+              <em>书源管理</em>
+              <strong>{{ bookSourceList.length }}</strong>
+            </button>
             <el-popover
               placement="right"
-              :width="popupWidth"
+              width="360"
               trigger="click"
               :visible-arrow="false"
-              v-model="popExploreVisible"
-              popper-class="popper-component"
+              popper-class="modern-action-popover"
             >
-              <Explore
-                ref="popExplore"
-                class="popup"
-                :visible="popExploreVisible"
-                :bookSourceList="bookSourceList"
-                @showSearchList="showSearchList"
-                @close="popExploreVisible = false"
-              />
+              <div class="modern-action-panel">
+                <div class="modern-action-panel-head">
+                  <strong>系统设置</strong>
+                  <span>集中管理书架、书源、账户和缓存</span>
+                </div>
+                <div class="modern-action-section">
+                  <div class="modern-action-title">书源</div>
+                  <div class="modern-action-grid">
+                    <button @click="showExplorePop">探索书源</button>
+                    <button @click="uploadBookSource">导入书源</button>
+                    <button @click="showBookSourceSubscriptionDialog">
+                      书源订阅
+                    </button>
+                    <button @click="showFailureBookSource()">失效书源</button>
+                    <button @click="debugBookSource()">调试书源</button>
+                  </div>
+                </div>
+                <div class="modern-action-section">
+                  <div class="modern-action-title">书架</div>
+                  <div class="modern-action-grid">
+                    <button @click="showBookManage">书籍管理</button>
+                    <button @click="showManageBookGroup">分组管理</button>
+                    <button @click="importLocalBook">导入书籍</button>
+                    <button
+                      v-if="
+                        !$store.state.isSecureMode ||
+                          $store.state.userInfo.enableLocalStore
+                      "
+                      @click="showLocalStoreManageDialog = true"
+                    >
+                      浏览书仓
+                    </button>
+                    <button @click="refreshShelf">刷新书架</button>
+                    <button @click="showRssDialog">RSS</button>
+                  </div>
+                </div>
+                <div class="modern-action-section">
+                  <div class="modern-action-title">账户与同步</div>
+                  <div class="modern-action-grid">
+                    <button @click="showWebDAVManageDialog = true">
+                      WebDAV
+                    </button>
+                    <button @click="backupToWebdav">保存备份</button>
+                    <button
+                      v-if="
+                        $store.state.isSecureMode &&
+                          $store.state.userInfo.username
+                      "
+                      @click="logout()"
+                    >
+                      注销
+                    </button>
+                    <button v-else @click="$store.commit('setShowLogin', true)">
+                      登录
+                    </button>
+                    <button
+                      v-if="localStorageAvaliable"
+                      @click="saveUserConfig"
+                    >
+                      备份配置
+                    </button>
+                    <button
+                      v-if="localStorageAvaliable"
+                      @click="restoreUserConfig"
+                    >
+                      同步配置
+                    </button>
+                    <button
+                      v-if="$store.state.showManagerMode"
+                      @click="loadUserList"
+                    >
+                      加载空间
+                    </button>
+                    <button
+                      v-if="$store.state.isManagerMode"
+                      @click="showUserManageDialog()"
+                    >
+                      用户空间
+                    </button>
+                    <button
+                      v-if="$store.state.isManagerMode"
+                      @click="exitSecureMode"
+                    >
+                      退出管理
+                    </button>
+                  </div>
+                </div>
+                <div class="modern-action-section">
+                  <div class="modern-action-title">系统</div>
+                  <div class="modern-action-grid">
+                    <button @click="setIP">后端设置</button>
+                    <button @click="init(true)">刷新缓存</button>
+                    <button @click="clearCache('bookSourceList')">
+                      清书源缓存
+                    </button>
+                    <button @click="clearCache('chapterList')">
+                      清章节缓存
+                    </button>
+                    <button @click="showMPCode">公众号</button>
+                    <button @click="joinTGChannel">TG频道</button>
+                  </div>
+                </div>
+              </div>
+              <button class="modern-nav-item" slot="reference">
+                <span>⚙</span>
+                <em>系统设置</em>
+                <strong></strong>
+              </button>
+            </el-popover>
+          </div>
+          <div class="modern-server-card">
+            <strong>{{ connectStatus }}</strong>
+            <span :class="{ online: $store.state.connected }"></span>
+            <button @click="setIP">后端设置</button>
+          </div>
+          <input
+            ref="fileRef"
+            type="file"
+            @change="onSourceFileChange"
+            style="display:none"
+          />
+          <input
+            ref="bookRef"
+            type="file"
+            multiple="multiple"
+            @change="onBookFileChange"
+            style="display:none"
+          />
+        </div>
+        <template v-else>
+          <div class="navigation-title">
+            阅读
+            <span class="version-text" @click="updateForce">{{
+              $store.state.version
+            }}</span>
+          </div>
+          <div class="navigation-sub-title">
+            清风不识字，何故乱翻书
+          </div>
+          <div class="search-wrapper">
+            <el-input
+              size="mini"
+              placeholder="搜索书籍"
+              v-model="search"
+              class="search-input"
+              @keyup.enter.native="searchBook(1)"
+            >
+              <i slot="prefix" class="el-input__icon el-icon-search"></i>
+            </el-input>
+          </div>
+          <div class="setting-wrapper search-setting">
+            <div class="setting-title">
+              搜索设置
+            </div>
+            <div class="setting-item">
+              <el-select
+                size="mini"
+                v-model="searchConfig.searchType"
+                class="setting-select"
+                filterable
+                placeholder="请选择搜索方式"
+              >
+                <el-option
+                  v-for="(item, index) in searchTypeList"
+                  :key="'search-type-' + index"
+                  :label="item.name"
+                  :value="item.value"
+                >
+                </el-option>
+              </el-select>
+            </div>
+            <div
+              class="setting-item"
+              v-show="searchConfig.searchType === 'single'"
+            >
+              <el-select
+                size="mini"
+                v-model="searchConfig.bookSourceUrl"
+                class="setting-select"
+                filterable
+                placeholder="请选择搜索书源"
+              >
+                <el-option
+                  v-for="(item, index) in bookSourceList"
+                  :key="'source-' + index"
+                  :label="item.bookSourceName"
+                  :value="item.bookSourceUrl"
+                >
+                </el-option>
+              </el-select>
+            </div>
+            <div
+              class="setting-item"
+              v-show="searchConfig.searchType !== 'single'"
+            >
+              <el-select
+                size="mini"
+                v-model="searchConfig.bookSourceGroup"
+                class="setting-select"
+                filterable
+                placeholder="请选择搜索书源分组"
+              >
+                <el-option
+                  v-for="(item, index) in bookSourceGroupList"
+                  :key="'source-group-' + index"
+                  :label="item.name + ' (' + item.count + ')'"
+                  :value="item.value"
+                >
+                </el-option>
+              </el-select>
+            </div>
+            <div
+              class="setting-item"
+              v-show="searchConfig.searchType !== 'single'"
+            >
+              <el-select
+                size="mini"
+                v-model="searchConfig.concurrentCount"
+                class="setting-select"
+                filterable
+                placeholder="请选择并发线程"
+              >
+                <el-option
+                  v-for="(item, index) in concurrentList"
+                  :key="'source-' + index"
+                  :label="item + '并发线程'"
+                  :value="item"
+                >
+                </el-option>
+              </el-select>
+            </div>
+          </div>
+          <div class="recent-wrapper">
+            <div class="recent-title">
+              最近阅读
+            </div>
+            <div class="reading-recent">
+              <el-tag
+                type="warning"
+                :effect="isNight ? 'dark' : 'light'"
+                class="recent-book"
+                @click="toDetail(readingRecent)"
+                :class="{ 'no-point': readingRecent.bookUrl == '' }"
+              >
+                {{ readingRecent.name }}
+              </el-tag>
+            </div>
+          </div>
+          <div class="setting-wrapper">
+            <div class="setting-title">
+              后端设定
+            </div>
+            <div class="setting-item">
+              <el-tag
+                :type="connectType"
+                :effect="isNight ? 'dark' : 'light'"
+                class="setting-connect"
+                :class="{ 'no-point': connecting }"
+                @click="setIP"
+              >
+                {{ connectStatus }}
+              </el-tag>
+            </div>
+          </div>
+          <div class="setting-wrapper">
+            <div class="setting-title">
+              书源设置
+            </div>
+            <div class="setting-item">
               <el-tag
                 type="info"
                 :effect="isNight ? 'dark' : 'light'"
-                slot="reference"
-                ref="exploreBtn"
                 class="setting-btn"
-                @click="showNavigation = false"
+                @click="showBookSourceManageDialog = true"
               >
-                探索书源
+                书源管理
               </el-tag>
-            </el-popover>
-            <el-tag
-              type="info"
-              :effect="isNight ? 'dark' : 'light'"
-              class="setting-btn"
-              @click="uploadBookSource"
-            >
-              导入书源
-            </el-tag>
-            <el-tag
-              type="info"
-              :effect="isNight ? 'dark' : 'light'"
-              class="setting-btn"
-              @click="showBookSourceSubscriptionDialog"
-            >
-              书源订阅
-            </el-tag>
-            <el-tag
-              type="info"
-              :effect="isNight ? 'dark' : 'light'"
-              class="setting-btn"
-              @click="showFailureBookSource()"
-            >
-              失效书源
-            </el-tag>
-            <el-tag
-              type="info"
-              :effect="isNight ? 'dark' : 'light'"
-              class="setting-btn"
-              @click="debugBookSource()"
-            >
-              调试书源
-            </el-tag>
-            <input
-              ref="fileRef"
-              type="file"
-              @change="onSourceFileChange"
-              style="display:none"
-            />
-          </div>
-        </div>
-        <div class="setting-wrapper">
-          <div class="setting-title">
-            书架设置
-          </div>
-          <div class="setting-item">
-            <el-tag
-              type="info"
-              :effect="$store.getters.isNight ? 'dark' : 'light'"
-              class="setting-btn"
-              @click="showBookManage"
-            >
-              书籍管理
-            </el-tag>
-            <el-tag
-              type="info"
-              :effect="$store.getters.isNight ? 'dark' : 'light'"
-              class="setting-btn"
-              @click="showManageBookGroup"
-            >
-              分组管理
-            </el-tag>
-            <el-tag
-              type="info"
-              :effect="$store.getters.isNight ? 'dark' : 'light'"
-              class="setting-btn"
-              @click="importLocalBook"
-            >
-              导入书籍
-            </el-tag>
-            <input
-              ref="bookRef"
-              type="file"
-              multiple="multiple"
-              @change="onBookFileChange"
-              style="display:none"
-            />
-            <el-tag
-              type="info"
-              :effect="$store.getters.isNight ? 'dark' : 'light'"
-              class="setting-btn"
-              @click="showLocalStoreManageDialog = true"
-              v-if="
-                !$store.state.isSecureMode ||
-                  $store.state.userInfo.enableLocalStore
-              "
-            >
-              浏览书仓
-            </el-tag>
-            <el-tag
-              type="info"
-              :effect="isNight ? 'dark' : 'light'"
-              class="setting-btn"
-              @click="init(true)"
-            >
-              刷新缓存
-            </el-tag>
-          </div>
-        </div>
-
-        <div class="setting-wrapper">
-          <div class="setting-title">
-            用户空间
-            <span
-              class="right-text"
-              v-if="$store.state.isSecureMode && $store.state.userInfo.username"
-              @click="logout()"
-              >注销</span
-            >
-            <span
-              class="right-text"
-              v-else
-              @click="$store.commit('setShowLogin', true)"
-              >登录</span
-            >
-          </div>
-          <div class="setting-item" v-if="$store.state.showManagerMode">
-            <el-select
-              size="mini"
-              v-model="userNS"
-              class="setting-select"
-              filterable
-              placeholder="请选择用户空间"
-            >
-              <el-option
-                v-for="(item, index) in userList"
-                :key="'source-' + index"
-                :label="item.username"
-                :value="item.userNS"
+              <el-popover
+                placement="right"
+                :width="popupWidth"
+                trigger="click"
+                :visible-arrow="false"
+                v-model="popExploreVisible"
+                popper-class="popper-component"
               >
-              </el-option>
-            </el-select>
+                <Explore
+                  ref="popExplore"
+                  class="popup"
+                  :visible="popExploreVisible"
+                  :bookSourceList="bookSourceList"
+                  @showSearchList="showSearchList"
+                  @close="popExploreVisible = false"
+                />
+                <el-tag
+                  type="info"
+                  :effect="isNight ? 'dark' : 'light'"
+                  slot="reference"
+                  ref="exploreBtn"
+                  class="setting-btn"
+                  @click="showNavigation = false"
+                >
+                  探索书源
+                </el-tag>
+              </el-popover>
+              <el-tag
+                type="info"
+                :effect="isNight ? 'dark' : 'light'"
+                class="setting-btn"
+                @click="uploadBookSource"
+              >
+                导入书源
+              </el-tag>
+              <el-tag
+                type="info"
+                :effect="isNight ? 'dark' : 'light'"
+                class="setting-btn"
+                @click="showBookSourceSubscriptionDialog"
+              >
+                书源订阅
+              </el-tag>
+              <el-tag
+                type="info"
+                :effect="isNight ? 'dark' : 'light'"
+                class="setting-btn"
+                @click="showFailureBookSource()"
+              >
+                失效书源
+              </el-tag>
+              <el-tag
+                type="info"
+                :effect="isNight ? 'dark' : 'light'"
+                class="setting-btn"
+                @click="debugBookSource()"
+              >
+                调试书源
+              </el-tag>
+              <input
+                ref="fileRef"
+                type="file"
+                @change="onSourceFileChange"
+                style="display:none"
+              />
+            </div>
           </div>
-          <div class="setting-item">
-            <el-tag
-              type="info"
-              :effect="isNight ? 'dark' : 'light'"
-              class="setting-btn"
-              @click="saveUserConfig"
-              v-if="localStorageAvaliable"
-            >
-              备份用户配置
-            </el-tag>
-            <el-tag
-              type="info"
-              :effect="isNight ? 'dark' : 'light'"
-              class="setting-btn"
-              @click="restoreUserConfig"
-              v-if="localStorageAvaliable"
-            >
-              同步用户配置
-            </el-tag>
-            <el-tag
-              type="info"
-              :effect="isNight ? 'dark' : 'light'"
-              class="setting-btn"
-              @click="loadUserList"
-              v-if="$store.state.showManagerMode"
-            >
-              加载用户空间
-            </el-tag>
-            <el-tag
-              type="info"
-              :effect="isNight ? 'dark' : 'light'"
-              class="setting-btn"
-              v-if="$store.state.isManagerMode"
-              @click="showUserManageDialog()"
-            >
-              管理用户空间
-            </el-tag>
-            <el-tag
-              type="info"
-              :effect="isNight ? 'dark' : 'light'"
-              class="setting-btn"
-              v-if="$store.state.isManagerMode"
-              @click="exitSecureMode"
-            >
-              退出管理模式
-            </el-tag>
+          <div class="setting-wrapper">
+            <div class="setting-title">
+              书架设置
+            </div>
+            <div class="setting-item">
+              <el-tag
+                type="info"
+                :effect="$store.getters.isNight ? 'dark' : 'light'"
+                class="setting-btn"
+                @click="showBookManage"
+              >
+                书籍管理
+              </el-tag>
+              <el-tag
+                type="info"
+                :effect="$store.getters.isNight ? 'dark' : 'light'"
+                class="setting-btn"
+                @click="showManageBookGroup"
+              >
+                分组管理
+              </el-tag>
+              <el-tag
+                type="info"
+                :effect="$store.getters.isNight ? 'dark' : 'light'"
+                class="setting-btn"
+                @click="importLocalBook"
+              >
+                导入书籍
+              </el-tag>
+              <input
+                ref="bookRef"
+                type="file"
+                multiple="multiple"
+                @change="onBookFileChange"
+                style="display:none"
+              />
+              <el-tag
+                type="info"
+                :effect="$store.getters.isNight ? 'dark' : 'light'"
+                class="setting-btn"
+                @click="showLocalStoreManageDialog = true"
+                v-if="
+                  !$store.state.isSecureMode ||
+                    $store.state.userInfo.enableLocalStore
+                "
+              >
+                浏览书仓
+              </el-tag>
+              <el-tag
+                type="info"
+                :effect="isNight ? 'dark' : 'light'"
+                class="setting-btn"
+                @click="init(true)"
+              >
+                刷新缓存
+              </el-tag>
+            </div>
           </div>
-        </div>
-        <div
-          class="setting-wrapper"
-          v-if="
-            !$store.state.isSecureMode || $store.state.userInfo.enableWebdav
-          "
-        >
-          <div class="setting-title">
-            WebDAV
+
+          <div class="setting-wrapper">
+            <div class="setting-title">
+              用户空间
+              <span
+                class="right-text"
+                v-if="
+                  $store.state.isSecureMode && $store.state.userInfo.username
+                "
+                @click="logout()"
+                >注销</span
+              >
+              <span
+                class="right-text"
+                v-else
+                @click="$store.commit('setShowLogin', true)"
+                >登录</span
+              >
+            </div>
+            <div class="setting-item" v-if="$store.state.showManagerMode">
+              <el-select
+                size="mini"
+                v-model="userNS"
+                class="setting-select"
+                filterable
+                placeholder="请选择用户空间"
+              >
+                <el-option
+                  v-for="(item, index) in userList"
+                  :key="'source-' + index"
+                  :label="item.username"
+                  :value="item.userNS"
+                >
+                </el-option>
+              </el-select>
+            </div>
+            <div class="setting-item">
+              <el-tag
+                type="info"
+                :effect="isNight ? 'dark' : 'light'"
+                class="setting-btn"
+                @click="saveUserConfig"
+                v-if="localStorageAvaliable"
+              >
+                备份用户配置
+              </el-tag>
+              <el-tag
+                type="info"
+                :effect="isNight ? 'dark' : 'light'"
+                class="setting-btn"
+                @click="restoreUserConfig"
+                v-if="localStorageAvaliable"
+              >
+                同步用户配置
+              </el-tag>
+              <el-tag
+                type="info"
+                :effect="isNight ? 'dark' : 'light'"
+                class="setting-btn"
+                @click="loadUserList"
+                v-if="$store.state.showManagerMode"
+              >
+                加载用户空间
+              </el-tag>
+              <el-tag
+                type="info"
+                :effect="isNight ? 'dark' : 'light'"
+                class="setting-btn"
+                v-if="$store.state.isManagerMode"
+                @click="showUserManageDialog()"
+              >
+                管理用户空间
+              </el-tag>
+              <el-tag
+                type="info"
+                :effect="isNight ? 'dark' : 'light'"
+                class="setting-btn"
+                v-if="$store.state.isManagerMode"
+                @click="exitSecureMode"
+              >
+                退出管理模式
+              </el-tag>
+            </div>
           </div>
-          <div class="setting-item">
-            <el-tag
-              type="info"
-              :effect="isNight ? 'dark' : 'light'"
-              class="setting-btn"
-              @click="showWebDAVManageDialog = true"
-            >
-              文件管理
-            </el-tag>
-            <el-tag
-              type="info"
-              :effect="isNight ? 'dark' : 'light'"
-              class="setting-btn"
-              @click="backupToWebdav"
-            >
-              保存备份
-            </el-tag>
+          <div
+            class="setting-wrapper"
+            v-if="
+              !$store.state.isSecureMode || $store.state.userInfo.enableWebdav
+            "
+          >
+            <div class="setting-title">
+              WebDAV
+            </div>
+            <div class="setting-item">
+              <el-tag
+                type="info"
+                :effect="isNight ? 'dark' : 'light'"
+                class="setting-btn"
+                @click="showWebDAVManageDialog = true"
+              >
+                文件管理
+              </el-tag>
+              <el-tag
+                type="info"
+                :effect="isNight ? 'dark' : 'light'"
+                class="setting-btn"
+                @click="backupToWebdav"
+              >
+                保存备份
+              </el-tag>
+            </div>
           </div>
-        </div>
-        <div class="setting-wrapper">
-          <div class="setting-title">
-            其它
+          <div class="setting-wrapper">
+            <div class="setting-title">
+              其它
+            </div>
+            <div class="setting-item">
+              <el-tag
+                type="info"
+                :effect="isNight ? 'dark' : 'light'"
+                class="setting-btn"
+                @click="showMPCode"
+              >
+                关注公众号【假装大佬】
+              </el-tag>
+              <el-tag
+                type="info"
+                :effect="isNight ? 'dark' : 'light'"
+                class="setting-btn"
+                @click="joinTGChannel"
+              >
+                加入TG频道【假装大佬】
+              </el-tag>
+            </div>
           </div>
-          <div class="setting-item">
-            <el-tag
-              type="info"
-              :effect="isNight ? 'dark' : 'light'"
-              class="setting-btn"
-              @click="showMPCode"
-            >
-              关注公众号【假装大佬】
-            </el-tag>
-            <el-tag
-              type="info"
-              :effect="isNight ? 'dark' : 'light'"
-              class="setting-btn"
-              @click="joinTGChannel"
-            >
-              加入TG频道【假装大佬】
-            </el-tag>
+          <div class="setting-wrapper">
+            <div class="setting-title">
+              本地缓存
+              <span class="right-text">{{ localCacheStats.total }}</span>
+            </div>
+            <div class="setting-item">
+              <el-tag
+                type="info"
+                :effect="$store.getters.isNight ? 'dark' : 'light'"
+                class="setting-btn"
+                @click="clearCache('bookSourceList')"
+              >
+                清空书源缓存
+                <span>{{ localCacheStats.bookSourceList }}</span>
+              </el-tag>
+              <el-tag
+                type="info"
+                :effect="$store.getters.isNight ? 'dark' : 'light'"
+                class="setting-btn"
+                @click="clearCache('rssSources')"
+              >
+                清空RSS源缓存
+                <span>{{ localCacheStats.rssSources }}</span>
+              </el-tag>
+              <el-tag
+                type="info"
+                :effect="$store.getters.isNight ? 'dark' : 'light'"
+                class="setting-btn"
+                @click="clearCache('chapterList')"
+              >
+                清空章节列表缓存
+                <span>{{ localCacheStats.chapterList }}</span>
+              </el-tag>
+              <el-tag
+                type="info"
+                :effect="$store.getters.isNight ? 'dark' : 'light'"
+                class="setting-btn"
+                @click="clearCache('chapterContent')"
+              >
+                清空章节内容缓存
+                <span>{{ localCacheStats.chapterContent }}</span>
+              </el-tag>
+            </div>
           </div>
-        </div>
-        <div class="setting-wrapper">
-          <div class="setting-title">
-            本地缓存
-            <span class="right-text">{{ localCacheStats.total }}</span>
-          </div>
-          <div class="setting-item">
-            <el-tag
-              type="info"
-              :effect="$store.getters.isNight ? 'dark' : 'light'"
-              class="setting-btn"
-              @click="clearCache('bookSourceList')"
-            >
-              清空书源缓存
-              <span>{{ localCacheStats.bookSourceList }}</span>
-            </el-tag>
-            <el-tag
-              type="info"
-              :effect="$store.getters.isNight ? 'dark' : 'light'"
-              class="setting-btn"
-              @click="clearCache('rssSources')"
-            >
-              清空RSS源缓存
-              <span>{{ localCacheStats.rssSources }}</span>
-            </el-tag>
-            <el-tag
-              type="info"
-              :effect="$store.getters.isNight ? 'dark' : 'light'"
-              class="setting-btn"
-              @click="clearCache('chapterList')"
-            >
-              清空章节列表缓存
-              <span>{{ localCacheStats.chapterList }}</span>
-            </el-tag>
-            <el-tag
-              type="info"
-              :effect="$store.getters.isNight ? 'dark' : 'light'"
-              class="setting-btn"
-              @click="clearCache('chapterContent')"
-            >
-              清空章节内容缓存
-              <span>{{ localCacheStats.chapterContent }}</span>
-            </el-tag>
-          </div>
-        </div>
+        </template>
       </div>
-      <div class="bottom-icons">
+      <div class="bottom-icons" v-if="!showModernShelf">
         <a href="https://github.com/hectorqin/reader" target="_blank">
           <div class="bottom-icon">
             <img
@@ -495,10 +686,176 @@
     </div>
     <div
       class="shelf-wrapper"
-      :class="isWebApp && !isNight ? 'status-bar-light-bg' : ''"
+      :class="[
+        isWebApp && !isNight ? 'status-bar-light-bg' : '',
+        { 'modern-shelf': showModernShelf }
+      ]"
       ref="shelfWrapper"
       @click="showNavigation = false"
+      @scroll="scrollHandler"
     >
+      <div class="modern-topbar" v-if="showModernShelf">
+        <el-input
+          size="small"
+          placeholder="搜索书名、作者、章节、书源"
+          v-model="search"
+          class="modern-search-input"
+          @keyup.enter.native="searchBook(1)"
+        >
+          <i slot="prefix" class="el-input__icon el-icon-search"></i>
+        </el-input>
+        <div class="modern-top-actions">
+          <button
+            class="modern-icon-btn"
+            title="刷新"
+            @click.stop="refreshShelf"
+          >
+            <i class="el-icon-refresh-right"></i>
+          </button>
+          <button
+            class="modern-icon-btn"
+            title="导入书籍"
+            @click.stop="importLocalBook"
+          >
+            <i class="el-icon-plus"></i>
+          </button>
+          <button
+            class="modern-text-btn primary"
+            :class="{ disabled: !modernCurrentBook.bookUrl }"
+            :disabled="!modernCurrentBook.bookUrl"
+            @click.stop="
+              modernCurrentBook.bookUrl && toDetail(modernCurrentBook)
+            "
+          >
+            继续阅读
+          </button>
+        </div>
+      </div>
+      <div class="modern-overview" v-if="showModernShelf && !isSearchResult">
+        <div
+          class="modern-continue-card"
+          :class="{ disabled: !modernCurrentBook.bookUrl }"
+          @click.stop="modernCurrentBook.bookUrl && toDetail(modernCurrentBook)"
+        >
+          <div class="modern-continue-cover">
+            <el-image
+              :class="{ 'empty-cover': !modernCurrentBook.bookUrl }"
+              class="cover"
+              :src="getCover(getBookCoverUrl(modernCurrentBook), true)"
+              fit="cover"
+              lazy
+            ></el-image>
+          </div>
+          <div class="modern-continue-info">
+            <div>
+              <div class="modern-eyebrow">正在阅读</div>
+              <h2>{{ modernCurrentBook.name || "尚无阅读记录" }}</h2>
+              <p>
+                {{
+                  modernCurrentBook.durChapterTitle ||
+                    modernCurrentBook.latestChapterTitle ||
+                    "从书架中选择一本书开始阅读"
+                }}
+              </p>
+            </div>
+            <div class="modern-meta-row">
+              <span>{{ modernCurrentBook.author || "未知作者" }}</span>
+              <span v-if="modernCurrentBook.totalChapterNum"
+                >共{{ modernCurrentBook.totalChapterNum }}章</span
+              >
+              <span v-if="modernUnreadCount(modernCurrentBook)"
+                >未读{{ modernUnreadCount(modernCurrentBook) }}章</span
+              >
+            </div>
+            <div class="modern-progress-row" v-if="modernCurrentBook.bookUrl">
+              <div class="modern-progress-track">
+                <i
+                  :style="{
+                    width: modernBookProgress(modernCurrentBook) + '%'
+                  }"
+                ></i>
+              </div>
+              <span>{{ modernBookProgress(modernCurrentBook) }}%</span>
+            </div>
+            <div class="modern-hero-actions">
+              <button
+                class="modern-text-btn primary"
+                :class="{ disabled: !modernCurrentBook.bookUrl }"
+                :disabled="!modernCurrentBook.bookUrl"
+                @click.stop="
+                  modernCurrentBook.bookUrl && toDetail(modernCurrentBook)
+                "
+              >
+                打开阅读
+              </button>
+              <button
+                class="modern-text-btn"
+                :class="{ disabled: !modernCurrentBook.bookUrl }"
+                :disabled="!modernCurrentBook.bookUrl"
+                @click.stop="modernOpenReaderPanel('catalog')"
+              >
+                查看目录
+              </button>
+              <button
+                class="modern-text-btn"
+                :class="{ disabled: !modernCurrentBook.bookUrl }"
+                :disabled="!modernCurrentBook.bookUrl"
+                @click.stop="modernOpenReaderPanel('source')"
+              >
+                换源
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="modern-update-card">
+          <div class="modern-panel-head">
+            <div>
+              <h3>今日更新</h3>
+              <p>优先处理有未读章节的书籍</p>
+            </div>
+            <span>{{ modernUnreadBookCount }} 本</span>
+          </div>
+          <div class="modern-update-list">
+            <div
+              class="modern-update-item"
+              v-for="book in modernUpdatedBooks"
+              :key="'modern-update-' + book.bookUrl"
+              @click.stop="toDetail(book)"
+            >
+              <el-image
+                class="modern-mini-cover"
+                :src="getCover(getBookCoverUrl(book), true)"
+                fit="cover"
+                lazy
+              ></el-image>
+              <div class="modern-update-info">
+                <strong>{{ book.name }}</strong>
+                <span>{{
+                  book.latestChapterTitle || book.durChapterTitle
+                }}</span>
+              </div>
+              <em>{{ modernUnreadCount(book) }}</em>
+            </div>
+            <div class="modern-empty-tip" v-if="!modernUpdatedBooks.length">
+              暂无未读更新
+            </div>
+          </div>
+          <div class="modern-stat-grid">
+            <div>
+              <strong>{{ shelfBooks.length }}</strong>
+              <span>藏书</span>
+            </div>
+            <div>
+              <strong>{{ modernUnreadChapterCount }}</strong>
+              <span>未读章节</span>
+            </div>
+            <div>
+              <strong>{{ bookSourceList.length }}</strong>
+              <span>书源</span>
+            </div>
+          </div>
+        </div>
+      </div>
       <div class="shelf-title">
         <i
           class="el-icon-menu"
@@ -540,10 +897,35 @@
         >
           RSS
         </div>
+        <el-popover
+          v-if="
+            showModernShelf &&
+              $store.getters.isNormalPage &&
+              !(isSearchResult && !isExploreResult)
+          "
+          placement="bottom-end"
+          :width="popupWidth"
+          trigger="click"
+          :visible-arrow="false"
+          v-model="popExploreVisible"
+          popper-class="popper-component"
+        >
+          <Explore
+            ref="popExplore"
+            class="popup"
+            :visible="popExploreVisible"
+            :bookSourceList="bookSourceList"
+            @showSearchList="showSearchList"
+            @close="popExploreVisible = false"
+          />
+          <div class="title-btn" slot="reference" ref="exploreBtn">
+            书海
+          </div>
+        </el-popover>
         <div
           class="title-btn"
           @click="showExplorePop"
-          v-if="
+          v-else-if="
             $store.getters.isNormalPage && !(isSearchResult && !isExploreResult)
           "
         >
@@ -571,7 +953,11 @@
         <div class="wrapper">
           <div
             class="book"
-            :style="showNavigation ? { minWidth: '360px !important' } : {}"
+            :style="
+              showNavigation && !showModernShelf
+                ? { minWidth: '360px !important' }
+                : {}
+            "
             v-for="book in bookList"
             :key="book.bookUrl"
             @click="toDetail(book)"
@@ -641,6 +1027,17 @@
                 {{
                   book.lastCheckTime ? dateFormat(book.lastCheckTime) : "最新"
                 }}：{{ book.latestChapterTitle }}
+              </div>
+              <div
+                class="modern-book-progress"
+                v-if="
+                  showModernShelf && !isSearchResult && book.totalChapterNum
+                "
+              >
+                <span
+                  ><i :style="{ width: modernBookProgress(book) + '%' }"></i
+                ></span>
+                <em>{{ modernBookProgress(book) }}%</em>
               </div>
               <div v-if="isSearchResult">
                 <el-tag
@@ -1593,7 +1990,7 @@ export default {
         }
       });
     },
-    toDetail(book) {
+    toDetail(book, panel) {
       if (!book.bookUrl) {
         return;
       }
@@ -1614,9 +2011,23 @@ export default {
         latestChapterTitle: book.latestChapterTitle,
         intro: book.intro
       });
+      const query = {};
+      if (this.isSearchResult) {
+        query.search = "1";
+      }
+      if (panel) {
+        query.panel = panel;
+      }
       this.$router.push({
-        path: "/reader" + (this.isSearchResult ? "?search=1" : "")
+        path: "/reader",
+        query
       });
+    },
+    modernOpenReaderPanel(panel) {
+      if (!this.modernCurrentBook.bookUrl) {
+        return;
+      }
+      this.toDetail(this.modernCurrentBook, panel);
     },
     async addBookToShelf(book) {
       const customImportBookInfo = await this.customImportBookInfo({
@@ -2968,10 +3379,28 @@ export default {
           // console.log(err);
         });
     },
-    scrollHandler() {
-      this.lastScrollTop = this.$refs.bookList.scrollTop;
+    scrollHandler(event) {
+      const target =
+        (event && event.target) ||
+        this.$refs.bookList ||
+        this.$refs.shelfWrapper;
+      this.lastScrollTop = target.scrollTop || 0;
+    },
+    modernUnreadCount(book) {
+      if (!book || !book.totalChapterNum) return 0;
+      const index = book.durChapterIndex ?? book.index ?? 0;
+      return Math.max((book.totalChapterNum || 0) - 1 - index, 0);
+    },
+    modernBookProgress(book) {
+      if (!book || !book.totalChapterNum) return 0;
+      const index = book.durChapterIndex ?? book.index ?? 0;
+      return Math.min(
+        100,
+        Math.max(0, Math.round(((index + 1) * 100) / book.totalChapterNum))
+      );
     },
     getBookCoverUrl(book) {
+      if (!book) return "";
       return book.customCoverUrl || book.coverUrl;
     },
     logout() {
@@ -3048,6 +3477,11 @@ export default {
         };
       }
     },
+    showModernShelf() {
+      return (
+        !this.$store.state.miniInterface && this.$store.getters.isNormalPage
+      );
+    },
     hasPcShelfTheme() {
       return (
         !this.$store.state.miniInterface &&
@@ -3113,6 +3547,31 @@ export default {
             bookUrl: "",
             index: 0
           };
+    },
+    modernCurrentBook() {
+      if (!this.readingRecent.bookUrl) return this.readingRecent;
+      return (
+        this.shelfBooks.find(v => v.bookUrl === this.readingRecent.bookUrl) ||
+        this.readingRecent
+      );
+    },
+    modernUpdatedBooks() {
+      return this.shelfBooks
+        .filter(v => this.modernUnreadCount(v) > 0)
+        .sort((a, b) => {
+          const diff = this.modernUnreadCount(b) - this.modernUnreadCount(a);
+          return diff || (b.lastCheckTime || 0) - (a.lastCheckTime || 0);
+        })
+        .slice(0, 3);
+    },
+    modernUnreadBookCount() {
+      return this.shelfBooks.filter(v => this.modernUnreadCount(v) > 0).length;
+    },
+    modernUnreadChapterCount() {
+      return this.shelfBooks.reduce(
+        (count, book) => count + this.modernUnreadCount(book),
+        0
+      );
     },
     loginAuth() {
       return this.$store.state.loginAuth;
@@ -3772,6 +4231,743 @@ export default {
       }
     }
   }
+
+  &.modern-shelf-layout {
+    --modern-bg: #f6f7f9;
+    --modern-surface: #ffffff;
+    --modern-soft: #f0f3f6;
+    --modern-raised: rgba(255, 255, 255, 0.88);
+    --modern-text: #141a22;
+    --modern-muted: #657181;
+    --modern-weak: #96a0ad;
+    --modern-line: rgba(20, 26, 34, 0.1);
+    --modern-accent: #3157d5;
+    --modern-accent-2: #13a08f;
+    --modern-danger: #df4b60;
+    --modern-shadow: 0 22px 54px rgba(38, 48, 66, 0.12);
+    --modern-card-shadow: 0 12px 28px rgba(38, 48, 66, 0.1);
+    background: var(--modern-bg);
+
+    .navigation-wrapper {
+      width: 248px;
+      min-width: 248px;
+      background: rgba(255, 255, 255, 0.78) !important;
+      border-right: 1px solid var(--modern-line);
+      box-shadow: none;
+      backdrop-filter: blur(18px);
+
+      .navigation-inner-wrapper {
+        padding: 20px 16px 76px;
+      }
+
+      .navigation-title {
+        padding: 8px 8px 16px;
+        border-bottom: 1px solid var(--modern-line);
+        color: var(--modern-text);
+        font-size: 20px;
+        line-height: 42px;
+
+        &::before {
+          content: "阅";
+          width: 42px;
+          height: 42px;
+          margin-right: 11px;
+          display: inline-grid;
+          place-items: center;
+          border-radius: 8px;
+          background: var(--modern-text);
+          color: #fff;
+          font-size: 22px;
+          font-weight: 900;
+          vertical-align: top;
+        }
+
+        .version-text {
+          line-height: 42px;
+          color: var(--modern-weak);
+        }
+      }
+
+      .navigation-sub-title {
+        margin: -8px 8px 18px 61px;
+        color: var(--modern-muted);
+        font-size: 13px;
+      }
+
+      .search-wrapper {
+        display: none;
+      }
+
+      .setting-wrapper {
+        margin-top: 18px;
+        padding: 0 6px;
+
+        .setting-title {
+          color: var(--modern-weak);
+          font-size: 12px;
+          font-weight: 800;
+        }
+
+        .setting-item {
+          padding-top: 10px;
+        }
+
+        .setting-btn,
+        .setting-connect {
+          max-width: 100%;
+          margin-right: 6px;
+          margin-bottom: 8px;
+          border-color: var(--modern-line);
+          border-radius: 8px;
+          background: var(--modern-surface);
+        }
+      }
+    }
+
+    .modern-nav {
+      min-height: 100%;
+      display: grid;
+      grid-template-rows: auto auto 1fr auto;
+      gap: 18px;
+    }
+
+    .modern-brand {
+      padding: 8px 8px 16px;
+      display: grid;
+      grid-template-columns: 42px 1fr;
+      gap: 11px;
+      align-items: center;
+      border-bottom: 1px solid var(--modern-line);
+
+      h1 {
+        margin: 0;
+        color: var(--modern-text);
+        font-size: 18px;
+        line-height: 1.2;
+      }
+
+      p {
+        margin: 3px 0 0;
+        color: var(--modern-muted);
+        font-size: 13px;
+        line-height: 1.35;
+      }
+    }
+
+    .modern-brand-mark {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      background: var(--modern-text);
+      color: #fff;
+      font-size: 22px;
+      font-weight: 900;
+    }
+
+    .modern-nav-section {
+      display: grid;
+      gap: 8px;
+    }
+
+    .modern-nav-title {
+      padding: 0 10px;
+      color: var(--modern-weak);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .modern-nav-item {
+      width: 100%;
+      height: 42px;
+      padding: 0 10px;
+      display: grid;
+      grid-template-columns: 24px 1fr auto;
+      gap: 8px;
+      align-items: center;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--modern-muted);
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 700;
+      text-align: left;
+
+      &.active {
+        border-color: rgba(49, 87, 213, 0.22);
+        background: rgba(49, 87, 213, 0.09);
+        color: var(--modern-accent);
+      }
+
+      &.disabled {
+        opacity: 0.5;
+        pointer-events: none;
+      }
+
+      em {
+        font-style: normal;
+      }
+
+      strong {
+        color: var(--modern-weak);
+        font-size: 12px;
+        font-weight: 800;
+      }
+    }
+
+    .modern-action-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+
+      button {
+        min-height: 34px;
+        padding: 0 8px;
+        border: 1px solid var(--modern-line);
+        border-radius: 8px;
+        background: var(--modern-surface);
+        color: var(--modern-muted);
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 800;
+      }
+    }
+
+    .modern-server-card {
+      align-self: end;
+      padding: 14px;
+      display: grid;
+      grid-template-columns: 8px 1fr;
+      gap: 8px;
+      align-items: center;
+      border: 1px solid var(--modern-line);
+      border-radius: 8px;
+      background: var(--modern-surface);
+      box-shadow: var(--modern-card-shadow);
+
+      strong {
+        grid-column: 1 / -1;
+        color: var(--modern-text);
+        font-size: 13px;
+        line-height: 1.35;
+      }
+
+      span {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--modern-danger);
+
+        &.online {
+          background: var(--modern-accent-2);
+        }
+      }
+
+      button {
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: var(--modern-accent);
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 800;
+        text-align: left;
+      }
+    }
+
+    .shelf-wrapper.modern-shelf {
+      padding: 22px;
+      gap: 18px;
+      height: 100%;
+      max-height: 100%;
+      overflow-y: auto;
+      overflow-x: hidden;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.72), transparent 260px),
+        var(--modern-bg);
+      color: var(--modern-text);
+    }
+
+    .modern-topbar {
+      min-height: 60px;
+      display: grid;
+      grid-template-columns: minmax(260px, 680px) 1fr;
+      gap: 14px;
+      align-items: center;
+    }
+
+    .modern-search-input {
+      >>>.el-input__inner {
+        height: 44px;
+        line-height: 44px;
+        border-color: var(--modern-line);
+        border-radius: 8px;
+        background: var(--modern-surface);
+        box-shadow: 0 8px 20px rgba(38, 48, 66, 0.06);
+        color: var(--modern-text);
+      }
+
+      >>>.el-input__prefix {
+        color: var(--modern-muted);
+      }
+    }
+
+    .modern-top-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .modern-icon-btn,
+    .modern-text-btn {
+      border: 1px solid var(--modern-line);
+      border-radius: 8px;
+      background: var(--modern-surface);
+      box-shadow: 0 8px 18px rgba(38, 48, 66, 0.06);
+      color: var(--modern-text);
+      cursor: pointer;
+    }
+
+    .modern-icon-btn {
+      width: 44px;
+      height: 44px;
+      font-size: 18px;
+    }
+
+    .modern-text-btn {
+      height: 44px;
+      padding: 0 14px;
+      font-weight: 800;
+
+      &.primary {
+        border-color: var(--modern-accent);
+        background: var(--modern-accent);
+        color: #fff;
+      }
+
+      &.disabled {
+        opacity: 0.55;
+        pointer-events: none;
+      }
+
+      &[disabled] {
+        cursor: default;
+      }
+    }
+
+    .modern-overview {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
+      gap: 18px;
+    }
+
+    .modern-continue-card,
+    .modern-update-card,
+    .books-wrapper {
+      border: 1px solid var(--modern-line);
+      border-radius: 8px;
+      background: var(--modern-surface);
+      box-shadow: var(--modern-shadow);
+      overflow: hidden;
+    }
+
+    .modern-continue-card {
+      min-height: 256px;
+      padding: 22px;
+      display: grid;
+      grid-template-columns: 172px 1fr;
+      gap: 22px;
+      cursor: pointer;
+      background:
+        linear-gradient(90deg, rgba(255, 255, 255, 0.97), rgba(255, 255, 255, 0.8)),
+        url("../assets/imgs/themes/content_1.png") repeat;
+
+      &.disabled {
+        cursor: default;
+      }
+    }
+
+    .modern-continue-cover {
+      width: 172px;
+      height: 232px;
+
+      .cover {
+        width: 172px;
+        height: 232px;
+        border-radius: 8px;
+        box-shadow: 0 20px 42px rgba(38, 48, 66, 0.24);
+
+        &.empty-cover {
+          background:
+            linear-gradient(145deg, rgba(49, 87, 213, 0.2), rgba(19, 160, 143, 0.2)),
+            var(--modern-soft);
+        }
+      }
+    }
+
+    .modern-continue-info {
+      min-width: 0;
+      display: grid;
+      align-content: center;
+      gap: 11px;
+
+      h2 {
+        margin-top: 6px;
+        font-size: clamp(28px, 4vw, 44px);
+        line-height: 1.08;
+        letter-spacing: 0;
+      }
+
+      p {
+        max-width: 720px;
+        margin-top: 8px;
+        color: var(--modern-muted);
+        font-size: 14px;
+        line-height: 1.55;
+      }
+    }
+
+    .modern-hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+
+      .modern-text-btn {
+        height: 38px;
+        padding: 0 12px;
+      }
+    }
+
+    .modern-eyebrow {
+      color: var(--modern-accent);
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .modern-meta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+
+      span {
+        min-height: 28px;
+        padding: 6px 10px;
+        border: 1px solid var(--modern-line);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.72);
+        color: var(--modern-muted);
+        font-size: 12px;
+        font-weight: 800;
+      }
+    }
+
+    .modern-progress-row,
+    .modern-book-progress {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: center;
+      color: var(--modern-muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .modern-progress-track,
+    .modern-book-progress span {
+      height: 8px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: rgba(101, 113, 129, 0.18);
+
+      i {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, var(--modern-accent), var(--modern-accent-2));
+      }
+    }
+
+    .modern-book-progress {
+      margin-top: 4px;
+
+      span {
+        height: 6px;
+      }
+
+      em {
+        color: var(--modern-weak);
+        font-style: normal;
+      }
+    }
+
+    .modern-update-card {
+      box-sizing: border-box;
+      padding: 18px;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 16px;
+
+      * {
+        box-sizing: border-box;
+      }
+    }
+
+    .modern-panel-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+
+      h3 {
+        margin: 0;
+        font-size: 18px;
+        line-height: 1.25;
+      }
+
+      p {
+        margin: 4px 0 0;
+        color: var(--modern-muted);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      > span {
+        color: var(--modern-accent);
+        font-weight: 900;
+        line-height: 22px;
+      }
+    }
+
+    .modern-update-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .modern-update-item {
+      min-height: 58px;
+      padding: 10px;
+      display: grid;
+      grid-template-columns: 38px 1fr auto;
+      gap: 10px;
+      align-items: center;
+      border: 1px solid var(--modern-line);
+      border-radius: 8px;
+      background: var(--modern-soft);
+      cursor: pointer;
+
+      em {
+        min-width: 28px;
+        height: 24px;
+        padding: 0 7px;
+        display: grid;
+        place-items: center;
+        border-radius: 999px;
+        background: rgba(223, 75, 96, 0.12);
+        color: var(--modern-danger);
+        font-size: 12px;
+        font-style: normal;
+        font-weight: 900;
+      }
+    }
+
+    .modern-mini-cover {
+      width: 38px;
+      height: 50px;
+      border-radius: 5px;
+      overflow: hidden;
+    }
+
+    .modern-update-info {
+      min-width: 0;
+
+      strong,
+      span {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      strong {
+        font-size: 14px;
+        line-height: 1.25;
+      }
+
+      span {
+        margin-top: 4px;
+        color: var(--modern-muted);
+        font-size: 12px;
+        line-height: 1.35;
+      }
+    }
+
+    .modern-empty-tip {
+      padding: 14px;
+      border: 1px solid var(--modern-line);
+      border-radius: 8px;
+      background: var(--modern-soft);
+      color: var(--modern-muted);
+      font-size: 13px;
+    }
+
+    .modern-stat-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+
+      div {
+        padding: 10px;
+        border: 1px solid var(--modern-line);
+        border-radius: 8px;
+        background: var(--modern-soft);
+      }
+
+      strong,
+      span {
+        display: block;
+      }
+
+      strong {
+        font-size: 18px;
+        line-height: 1.1;
+      }
+
+      span {
+        margin-top: 4px;
+        color: var(--modern-muted);
+        font-size: 12px;
+      }
+    }
+
+    .shelf-title {
+      min-height: 74px;
+      margin: 0;
+      padding: 16px 18px 0;
+      border: 1px solid var(--modern-line);
+      border-bottom: 0;
+      border-radius: 8px 8px 0 0;
+      background: var(--modern-surface);
+      color: var(--modern-text);
+      font-size: 22px;
+
+      .title-btn {
+        height: 32px;
+        padding: 0 10px;
+        border: 1px solid var(--modern-line);
+        border-radius: 8px;
+        color: var(--modern-muted);
+        line-height: 30px;
+        font-weight: 800;
+      }
+    }
+
+    .book-group-wrapper {
+      margin: 0;
+      padding: 0 18px 12px;
+      border-left: 1px solid var(--modern-line);
+      border-right: 1px solid var(--modern-line);
+      background: var(--modern-surface);
+    }
+
+    .books-wrapper {
+      flex: none;
+      overflow: visible;
+      border-radius: 0 0 8px 8px;
+      box-shadow: var(--modern-shadow);
+
+      .wrapper {
+        padding: 18px;
+        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+        justify-content: stretch;
+        align-items: stretch;
+        grid-gap: 18px;
+
+        .book {
+          box-sizing: border-box;
+          width: 100%;
+          min-height: 138px;
+          margin: 0;
+          padding: 12px;
+          display: grid;
+          grid-template-columns: 68px minmax(0, 1fr);
+          gap: 12px;
+          align-items: start;
+          border: 1px solid var(--modern-line);
+          border-radius: 8px;
+          background: var(--modern-raised);
+          box-shadow: var(--modern-card-shadow);
+          justify-content: flex-start;
+          transition: transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease;
+
+          &:hover {
+            transform: translateY(-2px);
+            border-color: rgba(49, 87, 213, 0.3);
+            background: #fff;
+            box-shadow: 0 18px 38px rgba(38, 48, 66, 0.14);
+          }
+
+          .cover-img {
+            width: 68px;
+            height: 96px;
+
+            .cover {
+              width: 68px;
+              height: 96px;
+              border-radius: 6px;
+              box-shadow: 0 10px 20px rgba(38, 48, 66, 0.18);
+            }
+          }
+
+          .info {
+            min-width: 0;
+            min-height: 96px;
+            height: auto;
+            margin-left: 0;
+            display: grid;
+            align-content: space-between;
+            gap: 8px;
+
+            .book-operation {
+              right: 0;
+              top: 0;
+              font-size: 20px;
+              color: var(--modern-muted);
+            }
+
+            .name {
+              width: auto;
+              padding-right: 28px;
+              color: var(--modern-text);
+              font-size: 15px;
+              line-height: 1.3;
+              font-weight: 900;
+              max-height: 39px;
+            }
+
+            .sub,
+            .intro,
+            .dur-chapter,
+            .last-chapter {
+              color: var(--modern-muted);
+              font-size: 12px;
+              line-height: 1.4;
+              font-weight: 500;
+            }
+
+            .sub,
+            .dur-chapter,
+            .last-chapter {
+              min-width: 0;
+              white-space: nowrap;
+            }
+          }
+        }
+      }
+    }
+  }
 }
 
 .unread-num-badge {
@@ -4128,6 +5324,68 @@ export default {
     rgba(0, 0, 0, 0.2) 0,
     transparent 36px
   ) !important;
+}
+.modern-action-popover {
+  padding: 0 !important;
+  border: 1px solid rgba(20, 26, 34, 0.1) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 22px 54px rgba(38, 48, 66, 0.16) !important;
+}
+.modern-action-panel {
+  max-height: min(720px, calc(100vh - 32px));
+  overflow-y: auto;
+  padding: 16px;
+  background: #fff;
+  color: #141a22;
+}
+.modern-action-panel-head {
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(20, 26, 34, 0.1);
+}
+.modern-action-panel-head strong,
+.modern-action-panel-head span {
+  display: block;
+}
+.modern-action-panel-head strong {
+  font-size: 16px;
+  line-height: 1.3;
+}
+.modern-action-panel-head span {
+  margin-top: 4px;
+  color: #657181;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.modern-action-section {
+  margin-top: 14px;
+}
+.modern-action-title {
+  margin-bottom: 8px;
+  color: #96a0ad;
+  font-size: 12px;
+  font-weight: 800;
+}
+.modern-action-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.modern-action-grid button {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgba(20, 26, 34, 0.1);
+  border-radius: 8px;
+  background: #f6f7f9;
+  color: #141a22;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+}
+.modern-action-grid button:hover {
+  border-color: rgba(49, 87, 213, 0.26);
+  background: rgba(49, 87, 213, 0.08);
+  color: #3157d5;
 }
 @media (hover: hover) {
   .book:hover {
