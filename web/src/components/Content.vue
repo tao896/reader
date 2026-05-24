@@ -1,4 +1,5 @@
 <script>
+import { setCache, getCache } from "../plugins/cache";
 import { loadFont } from "../plugins/helper";
 export default {
   name: "Content",
@@ -10,6 +11,12 @@ export default {
       currentSpeed: 1,
       audioVolume: 100,
       startTime: 0,
+      skipIntroSeconds: 0,
+      skipOutroSeconds: 0,
+      sleepMinutes: 0,
+      sleepEndTime: 0,
+      outroSkipped: false,
+      introApplied: false,
       iframeStyle: {},
       iframeInited: false
     };
@@ -95,6 +102,7 @@ export default {
   },
   mounted() {
     if (this.isAudio) {
+      this.loadAudioConfig();
       this.play(true);
     } else if (this.isEpub) {
       this.initIframe();
@@ -175,9 +183,26 @@ export default {
     },
     currentCustomFontFamily() {
       return this.$store.getters.currentCustomFontFamily;
+    },
+    audioConfigCacheKey() {
+      const bookUrl = (this.readingBook || {}).bookUrl || "";
+      const username = this.$store.getters.currentUserName || "default";
+      return `${username}@audioConfig@${bookUrl}`;
     }
   },
   watch: {
+    audioConfigCacheKey() {
+      if (this.isAudio) {
+        this.loadAudioConfig();
+      }
+    },
+    content() {
+      if (this.isAudio) {
+        this.resetAudioPlaybackState();
+        this.loadAudioConfig();
+        this.$nextTick(() => this.play(true));
+      }
+    },
     containerStyle() {
       if (this.isEpub) {
         this.setIframeStyle();
@@ -277,7 +302,6 @@ export default {
           <audio
             ref="audio"
             preload="preload"
-            src={this.content}
             vOn:loadMetaData={this.audioEvent}
             vOn:progress={this.onProgress}
             vOn:playing={this.onProgress}
@@ -291,7 +315,7 @@ export default {
             vOn:stalled={this.audioEvent}
             vOn:suspend={this.onsuspend}
             vOn:loadeddata={this.audioEvent}
-            vOn:loadedmetadata={this.audioEvent}
+            vOn:loadedmetadata={this.onLoadedMetadata}
             vOn:canplay={this.onCanPlay}
             vOn:canplaythrough={this.audioEvent}
             vOn:waiting={this.onWaiting}
@@ -378,6 +402,62 @@ export default {
                 }}
               ></el-slider>
             </span>
+          </div>
+          <div class="audio-setting">
+            <div class="setting-row">
+              <span class="setting-label">倍速</span>
+              <div class="setting-slider">
+                <el-slider
+                  vModel={this.currentSpeed}
+                  min={0.5}
+                  max={3}
+                  step={0.1}
+                  show-tooltip={false}
+                  vOn:change={this.changePlaybackRate}
+                ></el-slider>
+              </div>
+              <span class="setting-unit">{this.currentSpeed.toFixed(1)}x</span>
+            </div>
+            <div class="setting-row">
+              <span class="setting-label">片头</span>
+              <el-input-number
+                vModel={this.skipIntroSeconds}
+                min={0}
+                max={3600}
+                step={1}
+                size="mini"
+                controls-position="right"
+                vOn:change={this.changeSkipIntroSeconds}
+              ></el-input-number>
+              <span class="setting-unit">秒</span>
+            </div>
+            <div class="setting-row">
+              <span class="setting-label">片尾</span>
+              <el-input-number
+                vModel={this.skipOutroSeconds}
+                min={0}
+                max={3600}
+                step={1}
+                size="mini"
+                controls-position="right"
+                vOn:change={this.changeSkipOutroSeconds}
+              ></el-input-number>
+              <span class="setting-unit">秒</span>
+            </div>
+            <div class="setting-row">
+              <span class="setting-label">定时</span>
+              <div class="setting-slider">
+                <el-slider
+                  vModel={this.sleepMinutes}
+                  min={0}
+                  max={180}
+                  step={1}
+                  show-tooltip={false}
+                  vOn:change={this.changeSleepMinutes}
+                ></el-slider>
+              </div>
+              <span class="setting-unit">{this.sleepMinutes}分钟</span>
+            </div>
           </div>
           <div
             class="book-info"
@@ -543,23 +623,156 @@ export default {
       if (!val) {
         return "00:00";
       }
+      val = parseInt(val);
       const pad = v => (v >= 10 ? "" + v : "0" + v);
       if (val < 60) {
         return "00:" + pad(val);
       } else if (val < 3600) {
-        const m = Math.round(val / 60);
+        const m = Math.floor(val / 60);
         const s = val % 60;
         return pad(m) + ":" + pad(s);
       } else {
-        const h = Math.round(val / 3600);
-        const m = Math.round(val / 3600 / 60);
+        const h = Math.floor(val / 3600);
+        const m = Math.floor((val % 3600) / 60);
         const s = val % 60;
         return pad(h) + ":" + pad(m) + ":" + pad(s);
       }
     },
+    normalizeSeconds(val) {
+      val = parseInt(val);
+      return !isNaN(val) && val > 0 ? val : 0;
+    },
+    normalizePlaybackRate(val) {
+      val = parseFloat(val);
+      if (isNaN(val) || val === Infinity) {
+        return 1;
+      }
+      return Math.max(0.5, Math.min(3, Math.round(val * 10) / 10));
+    },
+    loadAudioConfig() {
+      const config = getCache(this.audioConfigCacheKey, {});
+      this.currentSpeed = this.normalizePlaybackRate(config.playbackRate || 1);
+      this.skipIntroSeconds = this.normalizeSeconds(config.skipIntroSeconds);
+      this.skipOutroSeconds = this.normalizeSeconds(config.skipOutroSeconds);
+      this.sleepMinutes = this.normalizeSeconds(config.sleepMinutes);
+      this.sleepEndTime = this.sleepMinutes
+        ? Date.now() + this.sleepMinutes * 60 * 1000
+        : 0;
+      if (this.$refs.audio) {
+        this.$refs.audio.playbackRate = this.currentSpeed;
+      }
+    },
+    saveAudioConfig() {
+      setCache(this.audioConfigCacheKey, {
+        playbackRate: this.currentSpeed,
+        skipIntroSeconds: this.skipIntroSeconds,
+        skipOutroSeconds: this.skipOutroSeconds,
+        sleepMinutes: this.sleepMinutes
+      });
+    },
+    changePlaybackRate(val) {
+      this.currentSpeed = this.normalizePlaybackRate(val);
+      if (this.$refs.audio) {
+        this.$refs.audio.playbackRate = this.currentSpeed;
+      }
+      this.saveAudioConfig();
+    },
+    changeSkipIntroSeconds(val) {
+      this.skipIntroSeconds = this.normalizeSeconds(val);
+      this.saveAudioConfig();
+      if (
+        this.$refs.audio &&
+        this.$refs.audio.currentTime < this.skipIntroSeconds
+      ) {
+        this.seekTime(this.skipIntroSeconds);
+      }
+    },
+    changeSkipOutroSeconds(val) {
+      this.skipOutroSeconds = this.normalizeSeconds(val);
+      this.outroSkipped = false;
+      this.saveAudioConfig();
+    },
+    changeSleepMinutes(val) {
+      this.sleepMinutes = this.normalizeSeconds(val);
+      this.sleepEndTime = this.sleepMinutes
+        ? Date.now() + this.sleepMinutes * 60 * 1000
+        : 0;
+      this.saveAudioConfig();
+    },
+    resetAudioPlaybackState() {
+      this.startTime = 0;
+      this.currentTime = 0;
+      this.audioDuration = 0;
+      this.outroSkipped = false;
+      this.introApplied = false;
+    },
+    stopBySleepTimer() {
+      if (!this.sleepEndTime || Date.now() < this.sleepEndTime) {
+        return false;
+      }
+      this.sleepMinutes = 0;
+      this.sleepEndTime = 0;
+      this.saveAudioConfig();
+      if (this.$refs.audio) {
+        this.$refs.audio.pause();
+      }
+      this.$message.info("定时停止播放");
+      this.$emit("updateProgress");
+      return true;
+    },
+    applyInitialAudioPosition(force) {
+      const intro = this.normalizeSeconds(this.skipIntroSeconds);
+      if (!this.$refs.audio || (this.introApplied && !force)) {
+        return false;
+      }
+      const duration = this.$refs.audio.duration;
+      if (
+        this.$refs.audio.readyState < 1 ||
+        isNaN(duration) ||
+        duration === Infinity ||
+        !duration
+      ) {
+        return false;
+      }
+      this.audioDuration = parseInt(duration);
+      const maxTime = Math.max(this.audioDuration - 1, 0);
+      const seekTo = Math.min(Math.max(this.startTime || 0, intro), maxTime);
+      if (force || this.$refs.audio.currentTime < seekTo) {
+        this.$refs.audio.currentTime = seekTo;
+        this.currentTime = seekTo | 0;
+      }
+      this.introApplied = true;
+      return true;
+    },
+    checkSkipOutro() {
+      if (!this.$refs.audio || this.outroSkipped) {
+        return false;
+      }
+      const outro = Math.min(
+        this.normalizeSeconds(this.skipOutroSeconds),
+        Math.max(this.audioDuration - 1, 0)
+      );
+      if (!outro || !this.audioDuration) {
+        return false;
+      }
+      if (this.audioDuration - this.$refs.audio.currentTime <= outro) {
+        this.outroSkipped = true;
+        this.playing = false;
+        this.currentTime = 0;
+        this.audioDuration = 0;
+        this.autoPlay = true;
+        this.$emit("nextChapter");
+        return true;
+      }
+      return false;
+    },
     seekTime(val) {
       if (!isNaN(val) && val !== Infinity) {
         if (this.$refs.audio) {
+          const duration = this.$refs.audio.duration;
+          if (!isNaN(duration) && duration !== Infinity && duration) {
+            val = Math.max(0, Math.min(val, duration));
+          }
           this.$refs.audio.currentTime = val;
         }
       }
@@ -574,6 +787,7 @@ export default {
     },
     ensureSeekTime(val) {
       this.startTime = val;
+      this.applyInitialAudioPosition(true);
     },
     toggle() {
       if (this.playing) {
@@ -590,6 +804,9 @@ export default {
         return;
       }
       if (init) {
+        this.introApplied = false;
+        this.outroSkipped = false;
+        this.$refs.audio.src = this.content;
         this.$refs.audio.load();
         this.computeDuration();
       }
@@ -599,10 +816,12 @@ export default {
     },
     prevChapter() {
       this.autoPlay = true;
+      this.outroSkipped = false;
       this.$emit("prevChapter");
     },
     nextChapter() {
       this.autoPlay = true;
+      this.outroSkipped = false;
       this.$emit("nextChapter");
     },
     computeDuration() {
@@ -621,7 +840,7 @@ export default {
       ) {
         this.audioDuration = parseInt(duration);
         this.$refs.audio.playbackRate = this.currentSpeed;
-        this.$refs.audio.currentTime = this.startTime;
+        this.applyInitialAudioPosition();
         // 有时会失败（看浏览器）
         if (this.autoPlay) {
           this.$refs.audio.play();
@@ -636,12 +855,22 @@ export default {
       // 记录缓存进度。触发事件包括缓存数据更新时的 progress 事件，以及各种播放动作会触发的 playing 事件
     },
     onTimeupdate() {
+      this.applyInitialAudioPosition();
       if (this.$refs.audio) {
         this.currentTime = this.$refs.audio.currentTime | 0;
+      }
+      if (this.stopBySleepTimer()) {
+        return;
+      }
+      if (this.checkSkipOutro()) {
+        return;
       }
       this.$emit("updateProgress");
     },
     onPlay() {
+      if (this.stopBySleepTimer()) {
+        return;
+      }
       this.playing = true;
     },
     onPause() {
@@ -667,8 +896,11 @@ export default {
     onsuspend() {
       // console.log("onsuspend", arguments);
     },
+    onLoadedMetadata() {
+      this.computeDuration();
+    },
     onCanPlay() {
-      // console.log("onCanPlay", arguments);
+      this.applyInitialAudioPosition();
     },
     onWaiting() {
       // console.log("onWaiting", arguments);
@@ -766,6 +998,35 @@ h3.reading {
       cursor: pointer;
       font-size: 24px;
       line-height: 1;
+    }
+  }
+
+  .audio-setting {
+    padding: 0 15px 20px;
+
+    .setting-row {
+      min-height: 36px;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      font-size: 14px;
+    }
+
+    .setting-label {
+      width: 45px;
+      flex: 0 0 45px;
+    }
+
+    .setting-slider {
+      flex: 1;
+      min-width: 0;
+      margin-right: 12px;
+    }
+
+    .setting-unit {
+      min-width: 50px;
+      margin-left: 10px;
+      text-align: left;
     }
   }
 

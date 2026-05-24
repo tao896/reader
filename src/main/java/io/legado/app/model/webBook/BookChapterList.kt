@@ -1,5 +1,6 @@
 package io.legado.app.model.webBook
 
+import io.legado.app.constant.BookType
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookChapter
 import io.legado.app.data.entities.BookSource
@@ -185,6 +186,9 @@ object BookChapterList {
                     if (bookChapter.isVolume) {
                         bookChapter.url = bookChapter.title + index
                         if(log) debugLog?.log(bookSource.bookSourceUrl, "⇒一级目录${index}未获取到url,使用标题替代")
+                    } else if (book.type == BookType.audio) {
+                        if(log) debugLog?.log(bookSource.bookSourceUrl, "⇒音频目录${index}未获取到url,跳过")
+                        return@forEachIndexed
                     } else {
                         bookChapter.url = baseUrl
                         if(log) debugLog?.log(bookSource.bookSourceUrl, "⇒目录${index}未获取到url,使用baseUrl替代")

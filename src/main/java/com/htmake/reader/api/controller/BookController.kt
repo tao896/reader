@@ -349,9 +349,11 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
         var userNameSpace = getUserNameSpace(context)
         var bookInfo = getShelfBookByURL(bookUrl, userNameSpace)
         var bookSource: String? = null
+        var refreshChapterList = false
+        var cacheInfo: Book? = bookInfoCache.getAsString(bookUrl)?.toMap()?.toDataClass()
+        refreshChapterList = fillBookRuntimeInfoFromCache(bookInfo, cacheInfo)
         if (bookInfo == null) {
             // 看看有没有缓存数据
-            var cacheInfo: Book? = bookInfoCache.getAsString(bookUrl)?.toMap()?.toDataClass()
             if (cacheInfo != null) {
                 // 使用缓存的书籍信息包含的书源
                 bookSource = getBookSourceString(context, cacheInfo.origin)
@@ -382,7 +384,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
         }
         // 缓存章节列表
         logger.info("bookInfo: {}", bookInfo)
-        var chapterList = getLocalChapterList(bookInfo, bookSource ?: "", refresh > 0, getUserNameSpace(context))
+        var chapterList = getLocalChapterList(bookInfo, bookSource ?: "", refresh > 0 || refreshChapterList, getUserNameSpace(context))
 
         return returnData.setData(chapterList)
     }
@@ -463,6 +465,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
         var bookInfo: Book? = null
         var chapterInfo: BookChapter? = null
         var nextChapterUrl: String? = null
+        var refreshChapterList = false
         if (!bookUrl.isNullOrEmpty()) {
             // 看看有没有加入书架
             bookInfo = getShelfBookByURL(bookUrl, userNameSpace)
@@ -475,6 +478,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
             if (cacheInfo != null) {
                 // 使用缓存的书籍信息包含的书源
                 bookSource = getBookSourceString(context, cacheInfo.origin)
+                refreshChapterList = fillBookRuntimeInfoFromCache(bookInfo, cacheInfo)
             }
             if (chapterUrl.isNullOrEmpty() && chapterIndex >= 0) {
                 // 根据 url 和 index 获取章节内容
@@ -485,7 +489,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
                     return returnData.setErrorMsg("未配置书源")
                 }
                 bookInfo = bookInfo ?: mergeBookCacheInfo(WebBook(bookSource ?: "", appConfig.debugLog).getBookInfo(bookUrl))
-                var chapterList = getLocalChapterList(bookInfo, bookSource ?: "", false, userNameSpace)
+                var chapterList = getLocalChapterList(bookInfo, bookSource ?: "", refreshChapterList, userNameSpace)
                 if (chapterIndex < chapterList.size) {
                     chapterInfo = chapterList.get(chapterIndex)
                     // 书架书籍保存阅读进度
@@ -618,6 +622,22 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
         }
 
         return returnData.setData(content)
+    }
+
+    fun fillBookRuntimeInfoFromCache(bookInfo: Book?, cacheInfo: Book?): Boolean {
+        if (bookInfo == null || cacheInfo == null) {
+            return false
+        }
+        var changed = false
+        if (bookInfo.variable.isNullOrEmpty() && !cacheInfo.variable.isNullOrEmpty()) {
+            bookInfo.variable = cacheInfo.variable
+            changed = true
+        }
+        if (bookInfo.tocUrl.isNullOrEmpty() && !cacheInfo.tocUrl.isNullOrEmpty()) {
+            bookInfo.tocUrl = cacheInfo.tocUrl
+            changed = true
+        }
+        return changed
     }
 
     suspend fun exploreBook(context: RoutingContext): ReturnData {
