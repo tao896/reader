@@ -3489,11 +3489,50 @@ export default {
       );
     },
     pcShelfThemeStyle() {
-      if (!this.hasPcShelfTheme) {
+      if (!this.showModernShelf && !this.hasPcShelfTheme) {
         return {};
       }
-      const shelf = this.$store.getters.currentThemeConfig.shelf;
-      return {
+      const theme = this.$store.getters.currentThemeConfig || {};
+      const shelf = theme.shelf || {};
+      const isNightTheme = theme.themeType === "night" || this.isNight;
+      const content =
+        typeof theme.content === "object"
+          ? theme.content.backgroundColor || theme.popupPure
+          : theme.content;
+      const body = theme.body;
+      const text =
+        shelf.text || theme.fontColor || (isNightTheme ? "#e9edf2" : "#141a22");
+      const muted = shelf.muted || (isNightTheme ? "#9aa8b8" : "#657181");
+      const line =
+        shelf.line ||
+        (isNightTheme ? "rgba(231, 238, 245, 0.13)" : "rgba(20, 26, 34, 0.1)");
+      const accent =
+        shelf.accent ||
+        (theme.preview && theme.preview[2]) ||
+        (isNightTheme ? "#f5b849" : "#3157d5");
+      const accent2 =
+        shelf.accent2 ||
+        (theme.preview && theme.preview[3]) ||
+        (isNightTheme ? "#58d5c9" : "#13a08f");
+      const panel =
+        shelf.panel || content || (isNightTheme ? "#1a2130" : "#ffffff");
+      const nav = shelf.nav || theme.popupPure || theme.popup || panel;
+      const card = shelf.card || panel;
+      const cardHover = shelf.cardHover || card;
+      const page = shelf.page || body || (isNightTheme ? "#11151c" : "#f6f7f9");
+      const input = shelf.input || panel;
+      const shadow =
+        shelf.shadow ||
+        (typeof theme.content === "object" && theme.content.boxShadow) ||
+        (isNightTheme
+          ? "0 28px 80px rgba(0, 0, 0, 0.36)"
+          : "0 22px 54px rgba(38, 48, 66, 0.12)");
+      const cardShadow =
+        shelf.cardShadow ||
+        (isNightTheme
+          ? "0 14px 36px rgba(0, 0, 0, 0.28)"
+          : "0 12px 28px rgba(38, 48, 66, 0.1)");
+      const style = {
         "--shelf-page": shelf.page,
         "--shelf-nav": shelf.nav,
         "--shelf-panel": shelf.panel,
@@ -3505,8 +3544,37 @@ export default {
         "--shelf-accent": shelf.accent,
         "--shelf-shadow": shelf.shadow,
         "--shelf-card-shadow": shelf.cardShadow,
-        "--shelf-input": shelf.input
+        "--shelf-input": shelf.input,
+        "--modern-bg": page,
+        "--modern-surface": panel,
+        "--modern-soft": input,
+        "--modern-raised": card,
+        "--modern-card-hover": cardHover,
+        "--modern-nav": nav,
+        "--modern-text": text,
+        "--modern-muted": muted,
+        "--modern-weak": muted,
+        "--modern-line": line,
+        "--modern-accent": accent,
+        "--modern-accent-2": accent2,
+        "--modern-danger": isNightTheme ? "#ff6b85" : "#df4b60",
+        "--modern-shadow": shadow,
+        "--modern-card-shadow": cardShadow,
+        "--modern-hero-bg": card,
+        "--modern-meta-bg": card,
+        "--modern-hero-overlay-start": isNightTheme
+          ? "rgba(26, 33, 48, 0.94)"
+          : "rgba(255, 255, 255, 0.97)",
+        "--modern-hero-overlay-end": isNightTheme
+          ? "rgba(26, 33, 48, 0.78)"
+          : "rgba(255, 255, 255, 0.8)"
       };
+      Object.keys(style).forEach(key => {
+        if (typeof style[key] === "undefined") {
+          delete style[key];
+        }
+      });
+      return style;
     },
     bookList() {
       return this.isSearchResult ? this.searchResult : this.showShelfBooks;
@@ -4251,7 +4319,7 @@ export default {
     .navigation-wrapper {
       width: 248px;
       min-width: 248px;
-      background: rgba(255, 255, 255, 0.78) !important;
+      background: var(--modern-nav, rgba(255, 255, 255, 0.78)) !important;
       border-right: 1px solid var(--modern-line);
       box-shadow: none;
       backdrop-filter: blur(18px);
@@ -4581,8 +4649,8 @@ export default {
       gap: 22px;
       cursor: pointer;
       background:
-        linear-gradient(90deg, rgba(255, 255, 255, 0.97), rgba(255, 255, 255, 0.8)),
-        url("../assets/imgs/themes/content_1.png") repeat;
+        linear-gradient(90deg, var(--modern-hero-overlay-start), var(--modern-hero-overlay-end)),
+        var(--modern-hero-bg, url("../assets/imgs/themes/content_1.png") repeat);
 
       &.disabled {
         cursor: default;
@@ -4650,17 +4718,20 @@ export default {
     .modern-meta-row {
       display: flex;
       flex-wrap: wrap;
-      gap: 6px;
+      gap: 8px;
 
       span {
-        min-height: 28px;
-        padding: 6px 10px;
+        height: 30px;
+        padding: 0 10px;
+        display: grid;
+        place-items: center;
         border: 1px solid var(--modern-line);
         border-radius: 999px;
-        background: rgba(255, 255, 255, 0.72);
+        background: var(--modern-meta-bg, rgba(255, 255, 255, 0.72));
         color: var(--modern-muted);
         font-size: 12px;
         font-weight: 800;
+        line-height: 1;
       }
     }
 
