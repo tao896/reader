@@ -263,7 +263,7 @@ export default {
       color: #aaa;
 
       .rss-article-date {
-        color: #666;
+        color: var(--ui-text-muted);
       }
     }
   }

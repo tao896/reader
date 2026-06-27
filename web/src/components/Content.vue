@@ -1079,15 +1079,15 @@ h3.reading {
 .day {
   .content-audio {
     .book-operation {
-      color: #222;
+      color: var(--ui-text);
     }
 
     .book-intro {
       .title {
-        color: #121212;
+        color: var(--ui-text);
       }
       .subtitle {
-        color: #666;
+        color: var(--ui-text-secondary);
       }
     }
   }
@@ -1095,15 +1095,15 @@ h3.reading {
 .night {
   .content-audio {
     .book-operation {
-      color: #888;
+      color: var(--ui-text-secondary);
     }
 
     .book-intro {
       .title {
-        color: #888;
+        color: var(--ui-text-secondary);
       }
       .subtitle {
-        color: #666;
+        color: var(--ui-text-muted);
       }
     }
   }

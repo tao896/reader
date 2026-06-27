@@ -104,7 +104,6 @@ export default {
   watch: {
     visible(isVisible) {
       if (isVisible) {
-        this.showCurrentBookSource();
         this.getBookSource();
       } else {
         this.closeSearchEventSource();
@@ -115,7 +114,6 @@ export default {
         this.closeSearchEventSource();
         this.loading = false;
         this.bookSourceGroupIndexMap = {};
-        this.showCurrentBookSource();
       }
     }
   },
@@ -147,59 +145,6 @@ export default {
     getBookSourceKey(searchBook) {
       return [searchBook.origin || "", searchBook.bookUrl || ""].join("@@");
     },
-    getCurrentBookSource() {
-      const book = this.$store.getters.readingBook || {};
-      if (!book.origin || !book.bookUrl) {
-        return null;
-      }
-      return {
-        bookUrl: book.bookUrl,
-        origin: book.origin,
-        originName: book.originName,
-        type: book.type || 0,
-        name: book.name,
-        author: book.author,
-        kind: book.kind,
-        coverUrl: book.customCoverUrl || book.coverUrl,
-        intro: book.customIntro || book.intro,
-        wordCount: book.wordCount,
-        latestChapterTitle: book.latestChapterTitle,
-        tocUrl: book.tocUrl,
-        variable: book.variable,
-        originOrder: book.originOrder || 0
-      };
-    },
-    mergeCurrentBookSource(list) {
-      const current = this.getCurrentBookSource();
-      if (!current) {
-        return list || [];
-      }
-      const result = [];
-      let addedCurrent = false;
-      (list || []).forEach(item => {
-        if (!item || !item.origin || !item.bookUrl) {
-          return;
-        }
-        if (item.origin === current.origin) {
-          if (!addedCurrent) {
-            result.push(current);
-            addedCurrent = true;
-          }
-        } else {
-          result.push(item);
-        }
-      });
-      if (!addedCurrent) {
-        result.unshift(current);
-      }
-      return result;
-    },
-    showCurrentBookSource() {
-      this.bookSource = this.mergeCurrentBookSource([]);
-      this.$nextTick(() => {
-        this.jumpToActive();
-      });
-    },
     isSelected(searchBook) {
       const readingBook = this.$store.getters.readingBook;
       return (
@@ -209,9 +154,6 @@ export default {
     },
     getBookSource(refresh) {
       const requestBookUrl = this.$store.getters.readingBook.bookUrl;
-      if (!refresh) {
-        this.showCurrentBookSource();
-      }
       Axios.post(
         this.api + `/getAvailableBookSource`,
         {
@@ -228,7 +170,7 @@ export default {
           }
           this.loading = false;
           if (res.data.isSuccess) {
-            this.bookSource = this.mergeCurrentBookSource(res.data.data || []);
+            this.bookSource = res.data.data || [];
             if (this.bookSource.length) {
               this.jumpToActive();
             } else {
@@ -349,7 +291,7 @@ export default {
           if (res.data.isSuccess) {
             var list = res.data.data.list || [];
             this.bookSource = [].concat(
-              this.mergeCurrentBookSource(this.bookSource),
+              this.bookSource,
               list.filter(v => {
                 return !this.bookSourceMap[this.getBookSourceKey(v)];
               })
@@ -448,7 +390,7 @@ export default {
             }
             if (result.data) {
               this.bookSource = [].concat(
-                this.mergeCurrentBookSource(this.bookSource),
+                this.bookSource,
                 result.data.filter(v => {
                   return !this.bookSourceMap[this.getBookSourceKey(v)];
                 })

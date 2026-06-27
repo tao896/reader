@@ -1014,7 +1014,7 @@ export default {
           margin-right: 16px;
           vertical-align: top;
           line-height: 36px;
-          color: #666;
+          color: var(--ui-text-secondary);
         }
         .font-color-title {
           line-height: 40px;

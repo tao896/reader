@@ -3115,10 +3115,10 @@ export default {
     padding-top: env(safe-area-inset-top) !important;
     left: 50%;
     z-index: 2001;
-    border-radius: 0 0 8px 8px;
+    border-radius: 0 0 var(--ui-radius) var(--ui-radius);
     overflow: hidden;
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
 
     .tools {
       display: flex;
@@ -3134,7 +3134,7 @@ export default {
         box-sizing: border-box;
         cursor: pointer;
         outline: none;
-        transition: background-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+        transition: all var(--ui-transition);
 
         &:hover {
           transform: translateY(-1px);
@@ -3176,10 +3176,10 @@ export default {
     bottom: 0;
     right: 50%;
     z-index: 100;
-    border-radius: 8px 8px 0 0;
+    border-radius: var(--ui-radius) var(--ui-radius) 0 0;
     overflow: visible;
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
 
     .progress {
       padding: 10px 36px;
@@ -3227,19 +3227,19 @@ export default {
 
       .float-btn {
         line-height: 32px;
-        width: 36px;
-        height: 36px;
-        border-radius: 8px;
+        width: 38px;
+        height: 38px;
+        border-radius: var(--ui-radius-sm);
         display: block;
         cursor: pointer;
         text-align: center;
         vertical-align: middle;
         pointer-events: all;
-        margin-top: 20px;
-        transition: transform 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+        margin-top: 16px;
+        transition: all var(--ui-transition);
 
         &:hover {
-          transform: translateY(-1px);
+          transform: translateY(-2px);
         }
 
         &:active {
@@ -3247,7 +3247,7 @@ export default {
         }
 
         .el-icon-top, .el-icon-bottom, .el-icon-info, .el-icon-search, .el-icon-collection-tag {
-          line-height: 36px;
+          line-height: 38px;
         }
       }
     }
@@ -3262,19 +3262,19 @@ export default {
 
       .float-btn {
         line-height: 32px;
-        width: 36px;
-        height: 36px;
-        border-radius: 8px;
+        width: 38px;
+        height: 38px;
+        border-radius: var(--ui-radius-sm);
         display: block;
         cursor: pointer;
         text-align: center;
         vertical-align: middle;
         pointer-events: all;
-        margin-top: 20px;
-        transition: transform 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+        margin-top: 16px;
+        transition: all var(--ui-transition);
 
         &:hover {
-          transform: translateY(-1px);
+          transform: translateY(-2px);
         }
 
         &:active {
@@ -3282,15 +3282,15 @@ export default {
         }
 
         .el-icon-refresh-right, .el-icon-headset, .el-icon-view {
-          line-height: 36px;
+          line-height: 38px;
         }
         .el-icon-moon {
-          color: #121212;
-          line-height: 34px;
+          color: var(--ui-text);
+          line-height: 36px;
         }
         .el-icon-sunny {
-          color: #666;
-          line-height: 34px;
+          color: var(--ui-text-secondary);
+          line-height: 36px;
         }
       }
     }
@@ -3437,12 +3437,12 @@ export default {
 
     >>>.el-icon-loading {
       font-size: 36px;
-      color: #B5B5B5;
+      color: var(--ui-text-muted);
     }
 
     >>>.el-loading-text {
       font-weight: 500;
-      color: #B5B5B5;
+      color: var(--ui-text-muted);
     }
 
     .click-zone {
@@ -3532,74 +3532,74 @@ export default {
 
 .day {
   >>>.popup {
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12), 0 0 6px rgba(0, 0, 0, 0.04);
+    box-shadow: var(--ui-shadow);
   }
 
   >>>.tool-icon {
-    border: 1px solid rgba(0, 0, 0, 0.08);
+    border: 1px solid var(--ui-border);
     margin-top: -1px;
-    color: #2c2c2c;
+    color: var(--ui-text);
 
     .icon-text {
-      color: rgba(0, 0, 0, 0.48);
+      color: var(--ui-text-secondary);
     }
   }
 
   >>>.tool-icon:hover {
-    background: rgba(0, 0, 0, 0.045);
-    color: #111;
+    background: rgba(79,110,247,.06);
+    color: var(--ui-text);
   }
 
   >>>.progress-tip {
-    color: rgba(0, 0, 0, 0.4);
+    color: var(--ui-text-secondary);
   }
 
   >>>.cache-content-zone {
-    color: rgba(0, 0, 0, 0.4);
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.08);
+    color: var(--ui-text-secondary);
+    box-shadow: var(--ui-shadow);
 
     .cache-content-btn:hover {
-      background: rgba(0, 0, 0, 0.055);
-      color: rgba(0, 0, 0, 0.72);
+      background: rgba(79,110,247,.06);
+      color: var(--ui-text);
     }
   }
 
   >>>.float-left-btn-zone {
-    color: #121212;
+    color: var(--ui-text);
   }
 
   >>>.float-right-btn-zone {
-    color: #121212;
+    color: var(--ui-text);
   }
 
   >>>.float-btn {
-    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.12);
+    box-shadow: var(--ui-shadow);
   }
 
   >>>.float-btn:hover {
-    background: rgba(0, 0, 0, 0.055) !important;
-    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.16);
+    background: rgba(79,110,247,.06) !important;
+    box-shadow: var(--ui-shadow-lg);
   }
 
   >>>.reader-bar-inner {
-    color: #121212;
+    color: var(--ui-text);
 
     .setting-title {
-      color: rgba(0, 0, 0, 0.8);
+      color: var(--ui-text);
     }
 
     .setting-value {
-      color: rgba(0, 0, 0, 0.4);
+      color: var(--ui-text-secondary);
     }
   }
 
   >>>.chapter {
-    border: 1px solid #dedede;
-    color: #262626;
+    border: 1px solid var(--ui-border);
+    color: var(--ui-text);
   }
 
   .bottom-bar, .top-bar {
-    color: rgba(0, 0, 0, 0.4);
+    color: var(--ui-text-secondary);
   }
 
   >>>.el-slider__runway {
@@ -3607,90 +3607,90 @@ export default {
   }
 
   >>>.play-pause-btn {
-    color: #409EFF;
+    color: var(--ui-accent);
   }
 }
 
 .night {
   >>>.popup {
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.48), 0 0 6px rgba(0, 0, 0, 0.16);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
   }
 
   >>>.tool-icon {
-    border: 1px solid #3b3b3b;
+    border: 1px solid rgba(255,255,255,.08);
     margin-top: -1px;
-    color: #777;
+    color: var(--ui-text-secondary);
 
     .icon-text {
-      color: #777;
+      color: var(--ui-text-muted);
     }
   }
 
   >>>.tool-icon:hover {
-    background: rgba(255, 255, 255, 0.06);
-    color: #999;
+    background: rgba(107,138,255,.1);
+    color: var(--ui-text);
   }
 
   >>>.progress-tip {
-    color: #666;
+    color: var(--ui-text-muted);
   }
 
   >>>.cache-content-zone {
-    color: #666;
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+    color: var(--ui-text-muted);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
 
     .cache-content-btn:hover {
-      background: rgba(255, 255, 255, 0.08);
-      color: #999;
+      background: rgba(107,138,255,.1);
+      color: var(--ui-text-secondary);
     }
   }
 
   >>>.float-left-btn-zone {
-    color: #666;
+    color: var(--ui-text-secondary);
   }
 
   >>>.float-right-btn-zone {
-    color: #666;
+    color: var(--ui-text-secondary);
   }
 
   >>>.float-btn {
-    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.34);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
   }
 
   >>>.float-btn:hover {
-    background: rgba(255, 255, 255, 0.07) !important;
-    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.44);
+    background: rgba(107,138,255,.1) !important;
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.5);
   }
 
   >>>.reader-bar-inner {
-    color: #666;
+    color: var(--ui-text-secondary);
   }
 
   >>>.chapter {
-    border: 1px solid #444;
-    color: #666;
+    border: 1px solid rgba(255,255,255,.06);
+    color: var(--ui-text-secondary);
   }
 
   >>>.popper__arrow {
-    background: #666;
+    background: var(--ui-text-muted);
   }
 
   .bottom-bar, .top-bar {
-    color: #666;
+    color: var(--ui-text-muted);
   }
 
   >>>.el-slider__runway {
-    background-color: #282828;
+    background-color: #2a2b32;
   }
   >>>.el-slider__bar {
-    background-color: #185798;
+    background-color: var(--ui-accent);
   }
   >>>.el-slider__button {
-    border: 2px solid #185798;
-    background-color: #282828;
+    border: 2px solid var(--ui-accent);
+    background-color: #2a2b32;
   }
   >>>.play-pause-btn {
-    color: #185798;
+    color: var(--ui-accent);
   }
 }
 
@@ -3885,8 +3885,8 @@ export default {
 <style lang="stylus">
 .voice-list {
   .el-radio-button__inner {
-    border-radius: 4px !important;
-    border-left: 1px solid #DCDFE6;
+    border-radius: var(--ui-radius-sm) !important;
+    border-left: 1px solid var(--ui-border);
     box-shadow: none;
   }
 }
@@ -3896,15 +3896,16 @@ export default {
       box-shadow: none !important;
     }
     .el-radio-button__inner {
-      background-color: #bbb;
-      border-color: #bbb;
+      background-color: #35363e;
+      border-color: rgba(255,255,255,.1);
+      color: #c5c8ce;
     }
     .el-radio-button__inner:hover {
-      color: #185798;
+      color: var(--ui-accent);
     }
     .el-radio-button__orig-radio:checked+.el-radio-button__inner {
-      background-color: #185798;
-      border-color: #185798;
+      background-color: var(--ui-accent);
+      border-color: var(--ui-accent);
       color: #fff;
       box-shadow: none;
     }
