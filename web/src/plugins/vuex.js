@@ -36,6 +36,8 @@ export default new Vuex.Store({
     loginAuth: true,
     token: getCache("api_token") || "",
     bookSourceList: [],
+    readConfigAutoSync: getCache("readConfigAutoSync", false) === true,
+    readConfigSyncing: false,
     isSecureMode: false,
     isManagerMode: false,
     secureKey: "",
@@ -242,6 +244,13 @@ export default new Vuex.Store({
     setToken(state, token) {
       state.token = token;
       setCache("api_token", token);
+    },
+    setReadConfigAutoSync(state, readConfigAutoSync) {
+      state.readConfigAutoSync = !!readConfigAutoSync;
+      setCache("readConfigAutoSync", state.readConfigAutoSync);
+    },
+    setReadConfigSyncing(state, readConfigSyncing) {
+      state.readConfigSyncing = !!readConfigSyncing;
     },
     setBookSourceList(state, list) {
       // 过滤一下不用的字段，省点内存

@@ -134,6 +134,7 @@ import {
   isMiniInterface,
   networkFirstRequest
 } from "./plugins/helper";
+import settings from "./plugins/config";
 
 Date.prototype.format = function(fmt) {
   var o = {
@@ -250,7 +251,11 @@ export default {
       showBookmarkForm: false,
       bookmark: {},
       isAddBookmark: true,
-      bookmarkInBook: {}
+      bookmarkInBook: {},
+      readConfigSyncTimer: null,
+      readConfigSyncErrorTime: 0,
+      readConfigSyncPending: false,
+      readConfigSaving: false
     };
   },
   beforeCreate() {
@@ -319,8 +324,9 @@ export default {
       });
     this.autoSetTheme(this.autoTheme);
 
-    this.getUserInfo().then(() => {
+    this.getUserInfo().then(async () => {
       this.$store.dispatch("syncFromLocalStorage");
+      await this.syncReadConfigFromServer();
       this.init();
     });
     this.loadTxtTocRules();
@@ -380,6 +386,7 @@ export default {
       this.showBookmarkDialog = true;
       this.bookmarkInBook = book;
     });
+    eventBus.$on("saveReadConfig", this.saveReadConfig);
   },
   mounted() {
     document.documentElement.style.setProperty(
@@ -463,9 +470,165 @@ export default {
       if (!val) {
         this.isLogin = true;
       }
+    },
+    "$store.state.config": {
+      deep: true,
+      handler() {
+        this.scheduleSaveReadConfig();
+      }
+    },
+    "$store.state.customConfigList": {
+      deep: true,
+      handler() {
+        this.scheduleSaveReadConfig();
+      }
     }
   },
   methods: {
+    cloneReadConfigValue(value, fallback) {
+      try {
+        return JSON.parse(JSON.stringify(value));
+      } catch (error) {
+        return fallback;
+      }
+    },
+    getReadConfigPayload() {
+      return {
+        readConfigAutoSync: this.$store.state.readConfigAutoSync,
+        config: this.cloneReadConfigValue(this.$store.state.config, {}),
+        customConfigList: this.cloneReadConfigValue(
+          this.$store.state.customConfigList,
+          []
+        )
+      };
+    },
+    canUseReadConfigApi() {
+      if (!this.$store.state.connected) {
+        return false;
+      }
+      if (
+        this.$store.state.isSecureMode &&
+        !(this.$store.state.userInfo && this.$store.state.userInfo.username)
+      ) {
+        return false;
+      }
+      return true;
+    },
+    scheduleSaveReadConfig() {
+      if (this.readConfigSyncTimer) {
+        clearTimeout(this.readConfigSyncTimer);
+      }
+      this.readConfigSyncTimer = setTimeout(() => {
+        this.readConfigSyncTimer = null;
+        if (!this.$store.state.readConfigAutoSync) {
+          return;
+        }
+        if (this.$store.state.readConfigSyncing) {
+          if (this.readConfigSaving) {
+            this.readConfigSyncPending = true;
+          }
+          return;
+        }
+        this.saveReadConfig({ silent: true });
+      }, 800);
+    },
+    async saveReadConfig(options = {}) {
+      const silent = options.silent !== false;
+      if (!this.canUseReadConfigApi()) {
+        if (!silent) {
+          this.$message.error("自动同步失败，后端未连接或未登录");
+        }
+        return false;
+      }
+      this.readConfigSaving = true;
+      this.$store.commit("setReadConfigSyncing", true);
+      try {
+        const res = await Axios.post(
+          this.api + "/saveReadConfig",
+          this.getReadConfigPayload(),
+          { silent: true }
+        );
+        if (res && res.data && res.data.isSuccess) {
+          if (!silent) {
+            this.$message.success(
+              this.$store.state.readConfigAutoSync
+                ? "自动同步已开启"
+                : "自动同步已关闭"
+            );
+          }
+          return true;
+        }
+        throw new Error((res && res.data && res.data.errorMsg) || "保存失败");
+      } catch (error) {
+        this.showReadConfigSyncError(error, silent);
+        return false;
+      } finally {
+        this.readConfigSaving = false;
+        this.$store.commit("setReadConfigSyncing", false);
+        if (this.readConfigSyncPending) {
+          this.readConfigSyncPending = false;
+          this.scheduleSaveReadConfig();
+        }
+      }
+    },
+    showReadConfigSyncError(error, silent) {
+      if (silent) {
+        const now = Date.now();
+        if (now - this.readConfigSyncErrorTime < 3000) {
+          return;
+        }
+        this.readConfigSyncErrorTime = now;
+      }
+      this.$message.error(
+        "自动同步失败 " + (error && error.toString ? error.toString() : "")
+      );
+    },
+    applyRemoteReadConfig(readConfig) {
+      this.$store.commit("setReadConfigAutoSync", true);
+      if (Array.isArray(readConfig.customConfigList)) {
+        this.$store.commit("setCustomConfigList", readConfig.customConfigList);
+      }
+      if (
+        readConfig.config &&
+        typeof readConfig.config === "object" &&
+        !Array.isArray(readConfig.config)
+      ) {
+        this.$store.commit("setConfig", {
+          ...settings.config,
+          ...readConfig.config
+        });
+      }
+    },
+    async syncReadConfigFromServer() {
+      if (this.readConfigSyncTimer) {
+        clearTimeout(this.readConfigSyncTimer);
+        this.readConfigSyncTimer = null;
+      }
+      if (!this.canUseReadConfigApi()) {
+        return;
+      }
+      this.$store.commit("setReadConfigSyncing", true);
+      try {
+        const res = await Axios.get(this.api + "/getReadConfig", {
+          silent: true
+        });
+        if (!res || !res.data || !res.data.isSuccess) {
+          return;
+        }
+        const readConfig = res.data.data || {};
+        if (readConfig.readConfigAutoSync === true) {
+          this.applyRemoteReadConfig(readConfig);
+        } else if (readConfig.readConfigAutoSync === false) {
+          this.$store.commit("setReadConfigAutoSync", false);
+        } else if (this.$store.state.readConfigAutoSync) {
+          await this.saveReadConfig({ silent: true });
+        }
+      } catch (error) {
+        //
+      } finally {
+        this.$store.commit("setReadConfigSyncing", false);
+      }
+    },
     autoSetTheme(autoTheme) {
       if (autoTheme) {
         if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
@@ -534,8 +697,9 @@ export default {
         if (this.remember && res.data.data && res.data.data.accessToken) {
           this.$store.commit("setToken", res.data.data.accessToken);
         }
-        this.getUserInfo().then(() => {
+        this.getUserInfo().then(async () => {
           this.$store.dispatch("syncFromLocalStorage");
+          await this.syncReadConfigFromServer();
           this.init(true);
         });
       }

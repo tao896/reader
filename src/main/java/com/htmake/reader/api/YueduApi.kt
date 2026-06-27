@@ -286,6 +286,12 @@ class YueduApi : RestVerticle() {
         // 用户恢复本地配置
         router.get("/reader3/getUserConfig").coroutineHandler { userController.getUserConfig(it) }
 
+        // 用户保存阅读页自动同步配置
+        router.post("/reader3/saveReadConfig").coroutineHandler { userController.saveReadConfig(it) }
+
+        // 用户读取阅读页自动同步配置
+        router.get("/reader3/getReadConfig").coroutineHandler { userController.getReadConfig(it) }
+
         // 获取用户列表
         router.get("/reader3/getUserList").coroutineHandler { userController.getUserList(it) }
 

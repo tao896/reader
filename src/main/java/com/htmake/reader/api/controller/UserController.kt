@@ -467,6 +467,32 @@ class UserController(coroutineContext: CoroutineContext): BaseController(corouti
         return returnData.setData(userConfig.map)
     }
 
+    suspend fun saveReadConfig(context: RoutingContext): ReturnData {
+        val returnData = ReturnData()
+        if (!checkAuth(context)) {
+            return returnData.setData("NEED_LOGIN").setErrorMsg("请登录后使用")
+        }
+        val content = context.bodyAsJson
+        if (content == null) {
+            return returnData.setErrorMsg("参数错误")
+        }
+        content.put("@updateTime", System.currentTimeMillis())
+
+        val userNameSpace = getUserNameSpace(context)
+        saveUserStorage(userNameSpace, "readConfig", content)
+        return returnData.setData("")
+    }
+
+    suspend fun getReadConfig(context: RoutingContext): ReturnData {
+        val returnData = ReturnData()
+        if (!checkAuth(context)) {
+            return returnData.setData("NEED_LOGIN").setErrorMsg("请登录后使用")
+        }
+        val userNameSpace = getUserNameSpace(context)
+        val readConfig = asJsonObject(getUserStorage(userNameSpace, "readConfig"))
+        return returnData.setData(readConfig?.map ?: mapOf<String, Any>())
+    }
+
     suspend fun uploadFile(context: RoutingContext): ReturnData {
         val returnData = ReturnData()
         if (!checkAuth(context)) {

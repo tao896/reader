@@ -6,7 +6,19 @@
   >
     <div class="settings-title">
       设置
-      <div class="title-btn" @click="resetConfig">重置为默认配置</div>
+      <div class="title-actions">
+        <div
+          class="title-btn auto-sync-btn"
+          :class="{
+            active: $store.state.readConfigAutoSync,
+            syncing: $store.state.readConfigSyncing
+          }"
+          @click="toggleReadConfigAutoSync"
+        >
+          自动同步
+        </div>
+        <div class="title-btn" @click="resetConfig">重置为默认配置</div>
+      </div>
     </div>
     <div class="setting-list">
       <ul>
@@ -813,6 +825,16 @@ export default {
     resetConfig() {
       this.config = { ...settings.config };
     },
+    toggleReadConfigAutoSync() {
+      if (this.$store.state.readConfigSyncing) {
+        return;
+      }
+      this.$store.commit(
+        "setReadConfigAutoSync",
+        !this.$store.state.readConfigAutoSync
+      );
+      eventBus.$emit("saveReadConfig", { silent: false });
+    },
     showClickZone() {
       this.$emit("close");
       this.$emit("showClickZone");
@@ -946,11 +968,28 @@ export default {
     font-family: -apple-system, "Noto Sans", "Helvetica Neue", Helvetica, "Nimbus Sans L", Arial, "Liberation Sans", "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Source Han Sans SC", "Source Han Sans CN", "Microsoft YaHei", "Wenquanyi Micro Hei", "WenQuanYi Zen Hei", "ST Heiti", SimHei, "WenQuanYi Zen Hei Sharp", sans-serif;
     font-weight: 400;
 
-    .title-btn {
+    .title-actions {
       float: right;
+      display: flex;
+      gap: 16px;
+    }
+
+    .title-btn {
       font-size: 14px;
       color: #ed4259;
       cursor: pointer;
+    }
+
+    .auto-sync-btn {
+      color: #666;
+
+      &.active {
+        color: #ed4259;
+      }
+
+      &.syncing {
+        cursor: wait;
+      }
     }
   }
 
