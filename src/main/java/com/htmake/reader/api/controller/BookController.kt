@@ -944,7 +944,9 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
                 resultList.size < searchSize
             }
         }
-        saveBookSources(book, resultList, userNameSpace)
+        if (!isEnd) {
+            saveBookSources(book, resultList, userNameSpace)
+        }
         return returnData.setData(mapOf("lastIndex" to lastIndex, "list" to resultList))
     }
 
@@ -1046,7 +1048,9 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
                 }
             }
             // 返回本轮数据
-            response.write("data: " + jsonEncode(mapOf("lastIndex" to lastIndex, "data" to loopResult), false) + "\n\n")
+            if (!isEnd) {
+                response.write("data: " + jsonEncode(mapOf("lastIndex" to lastIndex, "data" to loopResult), false) + "\n\n")
+            }
             logger.info("Loog: {} resultList.size: {}", loopCount, resultList.size)
 
             if (isEnd || loopCount >= concurrentLoopCount) {
@@ -1055,6 +1059,9 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
             } else {
                 resultList.size < searchSize
             }
+        }
+        if (isEnd) {
+            return
         }
         saveBookSources(book, resultList, userNameSpace)
         response.write("event: end\n")
@@ -1395,7 +1402,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
             if (localBookSourceList != null) {
                 for (i in 0 until localBookSourceList.size()) {
                     var _searchBook = localBookSourceList.getJsonObject(i).mapTo(SearchBook::class.java)
-                    if (_searchBook.bookUrl.equals(newBookUrl)) {
+                    if (_searchBook.bookUrl.equals(newBookUrl) && _searchBook.origin.equals(bookSourceUrl)) {
                         searchBook = _searchBook.toBook()
                         break;
                     }
@@ -1415,6 +1422,34 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
             WebBook(bookSourceString, appConfig.debugLog).getBookInfo(newBookUrl)
         }
 
+        // 先验证目录和当前章节正文，成功后再写入书架，避免失败源留下半切换状态。
+        val newChapterList = getLocalChapterList(newBookInfo, bookSourceString ?: "", true, userNameSpace)
+        if (!newBookInfo.isLocalBook()) {
+            if (bookSourceString.isNullOrEmpty()) {
+                return returnData.setErrorMsg("书源信息错误")
+            }
+            if (newChapterList.isEmpty()) {
+                return returnData.setErrorMsg("目录为空")
+            }
+            val chapterIndex = Math.min(Math.max(book.durChapterIndex, 0), newChapterList.size - 1)
+            val chapterInfo = newChapterList.get(chapterIndex)
+            val nextChapterUrl = if (chapterIndex + 1 < newChapterList.size) {
+                newChapterList.get(chapterIndex + 1).url
+            } else {
+                null
+            }
+            try {
+                WebBook(bookSourceString, appConfig.debugLog).getBookContent(newBookInfo, chapterInfo, nextChapterUrl)
+            } catch(e: Exception) {
+                var bookSourceObject = asJsonObject(bookSourceString)?.mapTo(BookSource::class.java)
+                if (bookSourceObject != null) {
+                    val info = mutableMapOf<String, Any>("sourceUrl" to bookSourceObject.bookSourceUrl, "time" to System.currentTimeMillis(), "error" to e.toString())
+                    addInvalidBookSource(bookSourceObject.bookSourceUrl, info, userNameSpace)
+                }
+                return returnData.setErrorMsg("该书源正文获取失败: ${e.localizedMessage ?: e.toString()}")
+            }
+        }
+
         editShelfBook(book, userNameSpace) { existBook ->
             existBook.origin = newBookInfo.origin
             existBook.originName = newBookInfo.originName
@@ -1431,8 +1466,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
             existBook
         }
 
-        // 更新目录
-        getLocalChapterList(newBookInfo, bookSourceString ?: "", true, userNameSpace)
+        saveBookSources(newBookInfo, listOf(newBookInfo.toSearchBook()), userNameSpace)
         return returnData.setData(newBookInfo)
     }
 
@@ -2017,7 +2051,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
             var existIndex: Int = -1
             for (i in 0 until bookSourceList.size()) {
                 var _searchBook = bookSourceList.getJsonObject(i).mapTo(SearchBook::class.java)
-                if (_searchBook.bookUrl.equals(searchBook.bookUrl)) {
+                if (_searchBook.bookUrl.equals(searchBook.bookUrl) && _searchBook.origin.equals(searchBook.origin)) {
                     existIndex = i
                     break;
                 }

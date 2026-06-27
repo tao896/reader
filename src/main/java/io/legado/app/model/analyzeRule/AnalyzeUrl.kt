@@ -243,6 +243,9 @@ class AnalyzeUrl(
         bindings["speakSpeed"] = speakSpeed
         bindings["book"] = ruleData as? Book
         bindings["source"] = source
+        bindings["chapter"] = chapter
+        bindings["chapterInfo"] = chapter
+        bindings["title"] = chapter?.title
         bindings["result"] = result
         return SCRIPT_ENGINE.eval(jsStr, bindings)
     }

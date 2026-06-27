@@ -518,9 +518,10 @@ interface JsExtensions {
     /**
      * 输出调试日志
      */
-    fun log(msg: String): String {
-        Debug.log(msg)
-        return msg
+    fun log(msg: String?): String {
+        val message = msg ?: "null"
+        Debug.log(message)
+        return message
     }
 
     /**

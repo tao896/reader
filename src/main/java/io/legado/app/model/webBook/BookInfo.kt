@@ -49,7 +49,9 @@ object BookInfo {
         infoRule.init?.let {
             if (it.isNotEmpty()) {
                 debugLog?.log(bookSource.bookSourceUrl, "≡执行详情页初始化规则")
-                analyzeRule.setContent(analyzeRule.getElement(it))
+                analyzeRule.getElement(it)?.let { content ->
+                    analyzeRule.setContent(content)
+                }
             }
         }
         val mCanReName = canReName && !infoRule.canReName.isNullOrBlank()

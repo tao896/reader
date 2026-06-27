@@ -651,6 +651,7 @@ class AnalyzeRule(
         bindings["result"] = result
         bindings["baseUrl"] = baseUrl
         bindings["chapter"] = chapter
+        bindings["chapterInfo"] = chapter
         bindings["title"] = chapter?.title
         bindings["src"] = content
         bindings["nextChapterUrl"] = nextChapterUrl

@@ -99,7 +99,9 @@ export default new Vuex.Store({
       });
     },
     updateShelfBook(state, book) {
-      const index = state.shelfBooks.findIndex(v => v.bookUrl === book.bookUrl);
+      const index = state.shelfBooks.findIndex(
+        v => v.bookUrl === (book.oldBookUrl || book.bookUrl)
+      );
       if (index >= 0) {
         state.shelfBooks[index] = {
           ...state.shelfBooks[index],

@@ -695,15 +695,32 @@
       @scroll="scrollHandler"
     >
       <div class="modern-topbar" v-if="showModernShelf">
-        <el-input
-          size="small"
-          placeholder="搜索书名、作者、章节、书源"
-          v-model="search"
-          class="modern-search-input"
-          @keyup.enter.native="searchBook(1)"
-        >
-          <i slot="prefix" class="el-input__icon el-icon-search"></i>
-        </el-input>
+        <div class="modern-search-controls">
+          <el-select
+            size="small"
+            v-model="searchConfig.bookSourceGroup"
+            class="modern-source-group-select"
+            filterable
+            placeholder="全部分组"
+          >
+            <el-option
+              v-for="(item, index) in bookSourceGroupList"
+              :key="'modern-source-group-' + index"
+              :label="item.name + ' (' + item.count + ')'"
+              :value="item.value"
+            >
+            </el-option>
+          </el-select>
+          <el-input
+            size="small"
+            placeholder="搜索书名、作者、章节、书源"
+            v-model="search"
+            class="modern-search-input"
+            @keyup.enter.native="searchBook(1)"
+          >
+            <i slot="prefix" class="el-input__icon el-icon-search"></i>
+          </el-input>
+        </div>
         <div class="modern-top-actions">
           <button
             class="modern-icon-btn"
@@ -4493,12 +4510,35 @@ export default {
     .modern-topbar {
       min-height: 60px;
       display: grid;
-      grid-template-columns: minmax(260px, 680px) 1fr;
+      grid-template-columns: minmax(360px, 820px) 1fr;
       gap: 14px;
       align-items: center;
     }
 
+    .modern-search-controls {
+      display: grid;
+      grid-template-columns: minmax(140px, 210px) minmax(220px, 1fr);
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .modern-source-group-select {
+      min-width: 0;
+
+      >>>.el-input__inner {
+        height: 44px;
+        line-height: 44px;
+        border-color: var(--modern-line);
+        border-radius: 8px;
+        background: var(--modern-surface);
+        box-shadow: 0 8px 20px rgba(38, 48, 66, 0.06);
+        color: var(--modern-text);
+      }
+    }
+
     .modern-search-input {
+      min-width: 0;
+
       >>>.el-input__inner {
         height: 44px;
         line-height: 44px;
@@ -5246,6 +5286,24 @@ export default {
       .book-group-wrapper {
         margin-left: 24px;
         margin-right: 24px;
+      }
+
+      &.modern-shelf {
+        padding: 18px;
+
+        .modern-topbar {
+          grid-template-columns: 1fr;
+          align-items: stretch;
+        }
+
+        .modern-search-controls {
+          grid-template-columns: 1fr;
+        }
+
+        .modern-top-actions {
+          justify-content: flex-start;
+          flex-wrap: wrap;
+        }
       }
 
       .books-wrapper {
