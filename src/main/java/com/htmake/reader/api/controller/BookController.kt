@@ -965,6 +965,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
         var bookUrl: String
         var lastIndex: Int
         var searchSize: Int
+        var concurrentCount: Int
         var bookSourceGroup: String
         var refresh: Int = 0
 
@@ -973,6 +974,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
             bookUrl = context.bodyAsJson.getString("url")
             lastIndex = context.bodyAsJson.getInteger("lastIndex", -1)
             searchSize = context.bodyAsJson.getInteger("searchSize", 30)
+            concurrentCount = context.bodyAsJson.getInteger("concurrentCount", 0)
             bookSourceGroup = context.bodyAsJson.getString("bookSourceGroup", "")
             refresh = context.bodyAsJson.getInteger("refresh", 0)
         } else {
@@ -980,6 +982,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
             bookUrl = context.queryParam("url").firstOrNull() ?: ""
             lastIndex = context.queryParam("lastIndex").firstOrNull()?.toInt() ?: -1
             searchSize = context.queryParam("searchSize").firstOrNull()?.toInt() ?: 30
+            concurrentCount = context.queryParam("concurrentCount").firstOrNull()?.toInt() ?: 0
             bookSourceGroup = context.queryParam("bookSourceGroup").firstOrNull() ?: ""
             refresh = context.queryParam("refresh").firstOrNull()?.toInt() ?: 0
         }
@@ -1024,17 +1027,26 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
         }
 
         searchSize = if(searchSize > 0) searchSize else 30
+        concurrentCount = if(concurrentCount > 0) concurrentCount else Math.max(searchSize * 2, 24)
         var resultList = arrayListOf<SearchBook>()
-        var concurrentCount = Math.max(searchSize * 2, 24)
         logger.info("searchBookMulti from lastIndex: {} concurrentCount: {} searchSize: {}", lastIndex, concurrentCount, searchSize)
         var isEnd = false
         context.request().connection().closeHandler{
             logger.info("客户端已断开链接，停止 searchBookSourceSSE")
             isEnd = true
         }
+        val searchedLastIndex = java.util.concurrent.atomic.AtomicInteger(lastIndex)
+        fun updateSearchedLastIndex(index: Int) {
+            while (true) {
+                val current = searchedLastIndex.get()
+                if (index <= current || searchedLastIndex.compareAndSet(current, index)) {
+                    return
+                }
+            }
+        }
 
         limitConcurrent(concurrentCount, lastIndex + 1, userBookSourceList.size, {it->
-            lastIndex = it
+            updateSearchedLastIndex(it)
             var bookSource = userBookSourceList.get(it)
             searchBookWithSource(bookSource, book, userNameSpace = userNameSpace)
         }) {list, loopCount ->
@@ -1049,7 +1061,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
             }
             // 返回本轮数据
             if (!isEnd) {
-                response.write("data: " + jsonEncode(mapOf("lastIndex" to lastIndex, "data" to loopResult), false) + "\n\n")
+                response.write("data: " + jsonEncode(mapOf("lastIndex" to searchedLastIndex.get(), "data" to loopResult), false) + "\n\n")
             }
             logger.info("Loog: {} resultList.size: {}", loopCount, resultList.size)
 
@@ -1065,7 +1077,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
         }
         saveBookSources(book, resultList, userNameSpace)
         response.write("event: end\n")
-        response.end("data: " + jsonEncode(mapOf("lastIndex" to lastIndex), false) + "\n\n")
+        response.end("data: " + jsonEncode(mapOf("lastIndex" to searchedLastIndex.get()), false) + "\n\n")
     }
 
     suspend fun searchBookWithSource(bookSourceString: String, book: Book, accurate: Boolean = true, userNameSpace: String = "default"): ArrayList<SearchBook> {
@@ -1136,23 +1148,30 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
             return returnData.setErrorMsg("书籍信息错误")
         }
         var bookSourceList: JsonArray? = asJsonArray(getUserStorage(userNameSpace, book.name + "_" + book.author, "bookSource"))
-        if (bookSourceList != null && bookSourceList.size() > 0) {
+        val normalizedBookSourceList = normalizeBookSourceList(bookSourceList)
+        val availableBookSourceList = ensureCurrentBookSource(book, normalizedBookSourceList)
+        if (bookSourceList == null || bookSourceList.encode() != availableBookSourceList.encode()) {
+            saveUserStorage(userNameSpace, getRelativePath(book.name + "_" + book.author, "bookSource"), availableBookSourceList)
+        }
+        if (availableBookSourceList.size() > 0) {
             if (refresh <= 0) {
-                return returnData.setData(bookSourceList.getList())
+                return returnData.setData(availableBookSourceList.getList())
             }
 
             // 刷新源
             var resultList = arrayListOf<SearchBook>()
             val concurrentCount = 16
             val userBookSourceStringList = loadBookSourceStringList(userNameSpace)
-            limitConcurrent(concurrentCount, 0, bookSourceList.size(), {it ->
-                var searchBook = bookSourceList.getJsonObject(it).mapTo(SearchBook::class.java)
+            limitConcurrent(concurrentCount, 0, availableBookSourceList.size(), {it ->
+                var searchBook = availableBookSourceList.getJsonObject(it).mapTo(SearchBook::class.java)
                 if (searchBook.origin.equals("loc_book")) {
                     arrayListOf(searchBook)
                 } else {
                     var bookSource = getBookSourceStringBySourceURL(searchBook.origin, userNameSpace, userBookSourceStringList)
                     if (bookSource != null) {
                         searchBookWithSource(bookSource, book, userNameSpace = userNameSpace)
+                    } else if (isCurrentBookSource(book, searchBook)) {
+                        arrayListOf(searchBook)
                     } else {
                         arrayListOf<SearchBook>()
                     }
@@ -1167,6 +1186,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
                 }
                 true
             }
+            keepCurrentBookSource(book, resultList)
             // logger.info("refreshed bookSourceList: {}", resultList)
             saveBookSources(book, resultList, userNameSpace, true)
             return returnData.setData(resultList)
@@ -1367,9 +1387,9 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
         var bookSourceUrl: String
         if (context.request().method() == HttpMethod.POST) {
             // post 请求
-            bookUrl = context.bodyAsJson.getString("bookUrl")
-            newBookUrl = context.bodyAsJson.getString("newUrl")
-            bookSourceUrl = context.bodyAsJson.getString("bookSourceUrl")
+            bookUrl = context.bodyAsJson.getString("bookUrl", "")
+            newBookUrl = context.bodyAsJson.getString("newUrl", "")
+            bookSourceUrl = context.bodyAsJson.getString("bookSourceUrl", "")
         } else {
             // get 请求
             bookUrl = context.queryParam("bookUrl").firstOrNull() ?: ""
@@ -1379,9 +1399,6 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
         if (bookUrl.isNullOrEmpty()) {
             return returnData.setErrorMsg("书籍链接不能为空")
         }
-        if (newBookUrl.isNullOrEmpty()) {
-            return returnData.setErrorMsg("新源书籍链接不能为空")
-        }
         if (bookSourceUrl.isNullOrEmpty()) {
             return returnData.setErrorMsg("书源链接不能为空")
         }
@@ -1389,6 +1406,15 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
         var book = getShelfBookByURL(bookUrl, userNameSpace)
         if (book == null) {
             return returnData.setErrorMsg("书籍信息错误")
+        }
+        if (newBookUrl.isNullOrEmpty() && bookSourceUrl.equals(book.origin)) {
+            newBookUrl = book.bookUrl
+        }
+        if (newBookUrl.isNullOrEmpty()) {
+            return returnData.setErrorMsg("新源书籍链接不能为空")
+        }
+        if (newBookUrl.equals(book.bookUrl) && bookSourceUrl.equals(book.origin)) {
+            return returnData.setData(book)
         }
         // 查找是否存在该书源
         var bookSourceString = getBookSourceStringBySourceURL(bookSourceUrl, userNameSpace)
@@ -1963,6 +1989,77 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
             }
         }
         return null
+    }
+
+    fun isCurrentBookSource(book: Book, searchBook: SearchBook): Boolean {
+        return searchBook.origin.equals(book.origin) && searchBook.bookUrl.equals(book.bookUrl)
+    }
+
+    fun normalizeBookSourceList(bookSourceList: JsonArray?): JsonArray {
+        val resultList = JsonArray()
+        if (bookSourceList == null) {
+            return resultList
+        }
+        for (i in 0 until bookSourceList.size()) {
+            try {
+                val searchBook = bookSourceList.getJsonObject(i).mapTo(SearchBook::class.java)
+                if (!searchBook.origin.isNullOrEmpty() && !searchBook.bookUrl.isNullOrEmpty()) {
+                    resultList.add(JsonObject.mapFrom(searchBook))
+                }
+            } catch(e: Exception) {
+                logger.warn("忽略无效书源缓存项: {}", e.toString())
+            }
+        }
+        return resultList
+    }
+
+    fun keepCurrentBookSource(book: Book, sourceList: ArrayList<SearchBook>) {
+        if (book.origin.isEmpty() || book.bookUrl.isEmpty()) {
+            return
+        }
+        var hasCurrent = false
+        sourceList.removeAll {
+            val isSameOrigin = it.origin.equals(book.origin)
+            val isCurrent = isCurrentBookSource(book, it)
+            if (isCurrent) {
+                hasCurrent = true
+            }
+            isSameOrigin && !isCurrent
+        }
+        if (!hasCurrent) {
+            sourceList.add(0, book.toSearchBook())
+        }
+    }
+
+    fun ensureCurrentBookSource(book: Book, bookSourceList: JsonArray?): JsonArray {
+        if (book.origin.isEmpty() || book.bookUrl.isEmpty()) {
+            return bookSourceList ?: JsonArray()
+        }
+        val currentSearchBook = book.toSearchBook()
+        val resultList = JsonArray()
+        var addedCurrent = false
+
+        if (bookSourceList != null) {
+            for (i in 0 until bookSourceList.size()) {
+                val searchBookJson = bookSourceList.getJsonObject(i)
+                val searchBook = searchBookJson.mapTo(SearchBook::class.java)
+                if (searchBook.origin.equals(currentSearchBook.origin)) {
+                    if (!addedCurrent) {
+                        resultList.add(JsonObject.mapFrom(currentSearchBook))
+                        addedCurrent = true
+                    }
+                } else {
+                    resultList.add(searchBookJson)
+                }
+            }
+        }
+
+        if (!addedCurrent) {
+            val list = resultList.getList()
+            list.add(0, JsonObject.mapFrom(currentSearchBook))
+            return JsonArray(list)
+        }
+        return resultList
     }
 
     fun saveShelfBookProgress(book: Book, bookChapter: BookChapter, userNameSpace: String) {
