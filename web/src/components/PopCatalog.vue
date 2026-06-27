@@ -404,7 +404,7 @@ export default {
     }
 
     >>>.cached {
-      color: #bbb !important;
+      color: var(--ui-text-muted) !important;
     }
   }
 }
