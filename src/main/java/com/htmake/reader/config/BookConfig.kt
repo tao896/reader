@@ -3,11 +3,13 @@ package com.htmake.reader.config
 import java.io.File
 
 object BookConfig {
-    val javascriptVersion = "reader-inject-javascript-1.1.0"
+    val javascriptVersion = "reader-inject-javascript-1.1.3"
     val epubInjectJavascript = """
     //<![CDATA[
     // ${javascriptVersion}
     if (!window.reader_inited) {
+        window.nativeCallback = window.nativeCallback || {};
+
         function reader_notify(event, data, id) {
             if (window.self !== window.top) {
                 window.top.postMessage(JSON.stringify({
@@ -32,10 +34,97 @@ object BookConfig {
             reader_notify("setHeight", document.documentElement.scrollHeight || document.body.scrollHeight)
         }
 
+        function reader_rectToObject(rect) {
+            if (!rect) {
+                return null;
+            }
+            var left = typeof rect.left === 'number' ? rect.left : 0;
+            var top = typeof rect.top === 'number' ? rect.top : 0;
+            var right = typeof rect.right === 'number' ? rect.right : left;
+            var bottom = typeof rect.bottom === 'number' ? rect.bottom : top;
+            var width = typeof rect.width === 'number' ? rect.width : right - left;
+            var height = typeof rect.height === 'number' ? rect.height : bottom - top;
+            return {
+                top: top,
+                right: right,
+                bottom: bottom,
+                left: left,
+                width: width,
+                height: height
+            };
+        }
+
+        function reader_getSelectionText() {
+            if (window.getSelection) {
+                return window.getSelection().toString();
+            }
+            if (document.selection && document.selection.type != 'Control') {
+                return document.selection.createRange().text;
+            }
+            return '';
+        }
+
+        function reader_getSelectionRect() {
+            try {
+                if (window.getSelection) {
+                    var selection = window.getSelection();
+                    if (!selection || !selection.rangeCount) {
+                        return null;
+                    }
+                    var range = selection.getRangeAt(0);
+                    var rects = Array.prototype.slice.call(range.getClientRects()).filter(function(rect) {
+                        return rect.width || rect.height;
+                    });
+                    if (!rects.length) {
+                        return reader_rectToObject(range.getBoundingClientRect());
+                    }
+                    var rect = rects.reduce(function(result, item) {
+                        var left = Math.min(result.left, item.left);
+                        var top = Math.min(result.top, item.top);
+                        var right = Math.max(result.right, item.right);
+                        var bottom = Math.max(result.bottom, item.bottom);
+                        return {
+                            top: top,
+                            right: right,
+                            bottom: bottom,
+                            left: left,
+                            width: right - left,
+                            height: bottom - top
+                        };
+                    }, reader_rectToObject(rects[0]));
+                    return reader_rectToObject(rect);
+                }
+                if (document.selection && document.selection.type != 'Control') {
+                    return reader_rectToObject(document.selection.createRange().getBoundingClientRect());
+                }
+            } catch (error) {
+                return null;
+            }
+            return null;
+        }
+
+        function reader_notifySelection() {
+            var text = reader_getSelectionText() || '';
+            var pureText = text.replace(/^\s+/, '').replace(/\s+$/, '');
+            if (!pureText) {
+                return false;
+            }
+            reader_notify('selection', {
+                text: pureText,
+                rect: reader_getSelectionRect()
+            });
+            return true;
+        }
+
+        function reader_deferNotifySelection(delay) {
+            setTimeout(reader_notifySelection, delay || 0);
+        }
+
         function reader_listenFromParent(event) {
-            reader_notify('received', {
-                data: event.data
-            })
+            if (window.self !== window.top && event.source !== window.parent && event.source !== window.top) {
+                return;
+            }
+
             let data;
             try {
                 data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
@@ -44,16 +133,15 @@ object BookConfig {
                 return;
             }
 
-            if (!data) {
+            if (!data || typeof data !== 'object') {
                 return;
             }
-            reader_notify("data ", data);
             if (data.event === 'setStyle') {
                 reader_setStyle(data.style);
-            } else if (data.event === 'execute') {
+            } else if (data.event === 'execute' && typeof data.script === 'string') {
                 eval(data.script);
             } else if (data.id) {
-                if (window.nativeCallback[data.id]) {
+                if (window.nativeCallback && typeof window.nativeCallback[data.id] === 'function') {
                     window.nativeCallback[data.id](data);
                     delete window.nativeCallback[data.id]
                 }
@@ -88,7 +176,24 @@ object BookConfig {
         });
         window.addEventListener('resize', reader_notifyHeight);
         document.addEventListener('DOMNodeInserted', reader_notifyHeight, false);
+        document.addEventListener('selectionchange', function() {
+            reader_deferNotifySelection(180);
+        }, false);
+        document.addEventListener('mouseup', function() {
+            reader_deferNotifySelection(0);
+        }, false);
+        document.addEventListener('touchend', function() {
+            reader_deferNotifySelection(120);
+        }, false);
+        window.addEventListener('keyup', function() {
+            reader_deferNotifySelection(0);
+        });
         document.addEventListener('click', function(event) {
+            if (reader_notifySelection()) {
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
             var linkElement = reader_getLinkElement(event.target)
             var imageElement = reader_getImageElement(event.target)
             if (linkElement) {

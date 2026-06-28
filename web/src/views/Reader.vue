@@ -536,6 +536,7 @@
         @touchstart="handleTouchStart"
         @touchmove="handleTouchMove"
         @touchend="handleTouchEnd"
+        @mouseup="handleSelectionEnd"
         @click="handlerClick"
       >
         <div class="content-inner" v-if="show">
@@ -558,6 +559,7 @@
             @epubLocationChange="epubLocationChangeHandler"
             @epubClickHash="epubClickHash"
             @epubKeydown="keydownHandler($event, true)"
+            @epubSelection="handleEpubSelection"
           />
         </div>
       </div>
@@ -703,6 +705,10 @@ export default {
     this.saveBookProgress();
     this.startSavePosition = false;
     this.lastReadingBook = this.$store.getters.readingBook;
+    if (this.selectionCheckTimer) {
+      clearTimeout(this.selectionCheckTimer);
+      this.selectionCheckTimer = null;
+    }
     this.hideSelectionToolbar();
     this.timer && clearInterval(this.timer);
     window.removeEventListener("keydown", this.keydownHandler);
@@ -870,6 +876,8 @@ export default {
       selectionToolbarVisible: false,
       selectionToolbarText: "",
       selectionToolbarStyle: {},
+      selectionToolbarShownAt: 0,
+      selectionCheckTimer: null,
       showTextFilterPrompting: false,
       showAddBookmarking: false,
       dictionaryVisible: false,
@@ -2030,6 +2038,26 @@ export default {
         this.lastMoveY = false;
       }, 300);
     },
+    handleSelectionEnd() {
+      if (this.isEpub || this.isAudio) {
+        return;
+      }
+      if (this.selectionCheckTimer) {
+        clearTimeout(this.selectionCheckTimer);
+      }
+      this.selectionCheckTimer = setTimeout(() => {
+        this.selectionCheckTimer = null;
+        if (!this.shouldShowSelectionAction()) {
+          return;
+        }
+        const text = this.getSelectedText();
+        if (!text) {
+          return;
+        }
+        this.ignoreNextClick = true;
+        this.showSelectionActionMenu(text);
+      }, 80);
+    },
     epubClickHash(rect) {
       if (typeof rect.top !== "undefined") {
         this.scrollContent(
@@ -2073,13 +2101,39 @@ export default {
         }
       }
     },
+    handleEpubSelection(selection) {
+      if (!this.shouldShowSelectionAction()) {
+        return;
+      }
+      if (!selection || !selection.text) {
+        this.hideSelectionToolbar(false);
+        return;
+      }
+      this.ignoreNextClick = true;
+      this.showSelectionActionMenu(selection.text, selection.rect);
+    },
     eventHandler(point) {
       // console.log(point);
       if (this.suppressSelectionToolbarTap) {
         this.suppressSelectionToolbarTap = false;
         return;
       }
-      if (this.checkSelection(true)) {
+      if (this.isEpub && this.ignoreNextClick) {
+        this.ignoreNextClick = false;
+        return;
+      }
+      if (
+        this.isEpub &&
+        this.selectionToolbarVisible &&
+        new Date().getTime() - this.selectionToolbarShownAt < 800
+      ) {
+        return;
+      }
+      if (this.isEpub && this.selectionToolbarVisible) {
+        this.hideSelectionToolbar(false);
+        return;
+      }
+      if (!this.isEpub && this.checkSelection(true)) {
         // 选择文本
         this.ignoreNextClick = true;
         return;
@@ -2239,12 +2293,7 @@ export default {
       this.timeStr = pad(now.getHours()) + ":" + pad(now.getMinutes());
     },
     checkSelection(show) {
-      let text = "";
-      if (window.getSelection) {
-        text = window.getSelection().toString();
-      } else if (document.selection && document.selection.type != "Control") {
-        text = document.selection.createRange().text;
-      }
+      const text = this.getSelectedText();
       if (text && show) {
         setTimeout(() => {
           if (this.shouldShowSelectionAction()) {
@@ -2256,6 +2305,15 @@ export default {
       }
       return text;
     },
+    getSelectedText() {
+      if (window.getSelection) {
+        return window.getSelection().toString();
+      }
+      if (document.selection && document.selection.type != "Control") {
+        return document.selection.createRange().text;
+      }
+      return "";
+    },
     shouldShowSelectionAction() {
       return this.$store.getters.config.selectionAction !== "忽略";
     },
@@ -2266,17 +2324,24 @@ export default {
         } else if (document.selection) {
           document.selection.empty();
         }
+        if (
+          this.isEpub &&
+          this.$refs.bookContentRef &&
+          this.$refs.bookContentRef.clearIframeSelection
+        ) {
+          this.$refs.bookContentRef.clearIframeSelection();
+        }
       } catch (error) {
         //
       }
     },
-    async showSelectionActionMenu(text) {
+    async showSelectionActionMenu(text, rect) {
       const pureText = (text || "").replace(/^\s+/, "").replace(/\s+$/, "");
       if (!pureText) {
         this.hideSelectionToolbar(false);
         return;
       }
-      const rect = this.getSelectionRect();
+      const targetRect = rect || this.getSelectionRect();
       this.selectionToolbarText = pureText;
       this.selectionToolbarStyle = {
         left: "50%",
@@ -2284,8 +2349,9 @@ export default {
         opacity: 0
       };
       this.selectionToolbarVisible = true;
+      this.selectionToolbarShownAt = new Date().getTime();
       this.$nextTick(() => {
-        this.positionSelectionToolbar(rect);
+        this.positionSelectionToolbar(targetRect);
       });
     },
     getSelectionRect() {
@@ -2380,6 +2446,7 @@ export default {
       this.selectionToolbarVisible = false;
       this.selectionToolbarText = "";
       this.selectionToolbarStyle = {};
+      this.selectionToolbarShownAt = 0;
       this.selectionActionPrompting = false;
       if (clearSelection === true) {
         this.clearTextSelection();

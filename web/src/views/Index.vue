@@ -873,198 +873,207 @@
           </div>
         </div>
       </div>
-      <div class="shelf-title">
-        <i
-          class="el-icon-menu"
-          v-if="$store.getters.isNormalPage && collapseMenu"
-          @click.stop="toggleMenu"
-        ></i>
-        {{ isSearchResult ? (isExploreResult ? "探索" : "搜索") : "书架" }}
-        ({{ bookList.length }})
-        <div
-          class="title-btn"
-          v-if="$store.getters.isNormalPage && isSearchResult"
-          @click="backToShelf"
-        >
-          书架
-        </div>
-        <div
-          class="title-btn"
-          v-if="$store.getters.isNormalPage && isSearchResult"
-          @click="loadMore"
-        >
-          <i class="el-icon-loading" v-if="loadingMore"></i>
-          {{ loadingMore ? "加载中..." : "加载更多" }}
-        </div>
-        <div
-          class="title-btn"
-          v-if="$store.getters.isNormalPage && !isSearchResult"
-          @click="showBookEditButton = !showBookEditButton"
-        >
-          {{ showBookEditButton ? "取消" : "编辑" }}
-        </div>
-        <div class="title-btn" v-if="!isSearchResult" @click="refreshShelf">
-          <i class="el-icon-loading" v-if="refreshLoading"></i>
-          {{ refreshLoading ? "刷新中..." : "刷新" }}
-        </div>
-        <div
-          class="title-btn"
-          v-if="$store.getters.isNormalPage && !isSearchResult"
-          @click="showRssDialog"
-        >
-          RSS
-        </div>
-        <el-popover
-          v-if="
-            showModernShelf &&
+      <div class="main-card shelf-main-card" :style="shelfMainCardStyle">
+        <div class="shelf-title">
+          <i
+            class="el-icon-menu"
+            v-if="$store.getters.isNormalPage && collapseMenu"
+            @click.stop="toggleMenu"
+          ></i>
+          {{ isSearchResult ? (isExploreResult ? "探索" : "搜索") : "书架" }}
+          ({{ bookList.length }})
+          <div
+            class="title-btn"
+            v-if="$store.getters.isNormalPage && isSearchResult"
+            @click="backToShelf"
+          >
+            书架
+          </div>
+          <div
+            class="title-btn"
+            v-if="$store.getters.isNormalPage && isSearchResult"
+            @click="loadMore"
+          >
+            <i class="el-icon-loading" v-if="loadingMore"></i>
+            {{ loadingMore ? "加载中..." : "加载更多" }}
+          </div>
+          <div
+            class="title-btn"
+            v-if="$store.getters.isNormalPage && !isSearchResult"
+            @click="showBookEditButton = !showBookEditButton"
+          >
+            {{ showBookEditButton ? "取消" : "编辑" }}
+          </div>
+          <div class="title-btn" v-if="!isSearchResult" @click="refreshShelf">
+            <i class="el-icon-loading" v-if="refreshLoading"></i>
+            {{ refreshLoading ? "刷新中..." : "刷新" }}
+          </div>
+          <div
+            class="title-btn"
+            v-if="$store.getters.isNormalPage && !isSearchResult"
+            @click="showRssDialog"
+          >
+            RSS
+          </div>
+          <el-popover
+            v-if="
+              showModernShelf &&
+                $store.getters.isNormalPage &&
+                !(isSearchResult && !isExploreResult)
+            "
+            placement="bottom-end"
+            :width="popupWidth"
+            trigger="click"
+            :visible-arrow="false"
+            v-model="popExploreVisible"
+            popper-class="popper-component"
+          >
+            <Explore
+              ref="popExplore"
+              class="popup"
+              :visible="popExploreVisible"
+              :bookSourceList="bookSourceList"
+              @showSearchList="showSearchList"
+              @close="popExploreVisible = false"
+            />
+            <div class="title-btn" slot="reference" ref="exploreBtn">
+              书海
+            </div>
+          </el-popover>
+          <div
+            class="title-btn"
+            @click="showExplorePop"
+            v-else-if="
               $store.getters.isNormalPage &&
-              !(isSearchResult && !isExploreResult)
-          "
-          placement="bottom-end"
-          :width="popupWidth"
-          trigger="click"
-          :visible-arrow="false"
-          v-model="popExploreVisible"
-          popper-class="popper-component"
-        >
-          <Explore
-            ref="popExplore"
-            class="popup"
-            :visible="popExploreVisible"
-            :bookSourceList="bookSourceList"
-            @showSearchList="showSearchList"
-            @close="popExploreVisible = false"
-          />
-          <div class="title-btn" slot="reference" ref="exploreBtn">
+                !(isSearchResult && !isExploreResult)
+            "
+          >
             书海
           </div>
-        </el-popover>
-        <div
-          class="title-btn"
-          @click="showExplorePop"
-          v-else-if="
-            $store.getters.isNormalPage && !(isSearchResult && !isExploreResult)
-          "
-        >
-          书海
         </div>
-      </div>
-      <div class="book-group-wrapper" v-if="!isSearchResult">
-        <el-tabs class="book-group-tabs" v-model="showBookGroupString" stretch>
-          <el-tab-pane
-            v-for="group in bookGroupDisplayList"
-            :label="group.groupName"
-            :name="'' + group.groupId"
-            :key="'bookGroup-' + group.groupId"
-          ></el-tab-pane>
-        </el-tabs>
-      </div>
-      <div
-        class="books-wrapper"
-        ref="bookList"
-        @touchstart="handleTouchStart"
-        @touchmove="handleTouchMove"
-        @touchend="handleTouchEnd"
-        @scroll="scrollHandler"
-      >
-        <div class="wrapper">
-          <div
-            class="book"
-            :style="
-              showNavigation && !showModernShelf
-                ? { minWidth: '360px !important' }
-                : {}
-            "
-            v-for="book in bookList"
-            :key="book.bookUrl"
-            @click="toDetail(book)"
+        <div class="book-group-wrapper" v-if="!isSearchResult">
+          <el-tabs
+            class="book-group-tabs"
+            v-model="showBookGroupString"
+            stretch
           >
-            <div class="cover-img" @click.stop="showBookInfoDialog(book)">
-              <!-- <img class="cover" v-lazy="getCover(book.coverUrl)" alt="" /> -->
-              <el-image
-                class="cover"
-                ref="bookCoverList"
-                :src="getCover(getBookCoverUrl(book), true)"
-                fit="cover"
-                lazy
-              >
-              </el-image>
-            </div>
-            <div class="info" @click="toDetail(book)">
-              <div class="book-operation">
-                <i
-                  class="el-icon-close"
-                  v-if="!isSearchResult && showBookEditButton"
-                  @click.stop="deleteBook(book)"
-                ></i>
-                <i
-                  class="el-icon-edit"
-                  v-if="!isSearchResult && showBookEditButton"
-                  @click.stop="editBook(book)"
-                ></i>
-                <i
-                  class="el-icon-edit"
-                  v-if="isSearchResult"
-                  @click.stop="editBook(book, true)"
-                ></i>
-                <el-badge
-                  class="unread-num-badge"
-                  :max="99"
-                  :value="book.totalChapterNum - 1 - book.durChapterIndex"
-                  v-if="
-                    !isSearchResult &&
-                      !showBookEditButton &&
-                      book.totalChapterNum - 1 - book.durChapterIndex > 0
-                  "
-                />
-              </div>
-              <div
-                class="name"
-                slot="reference"
-                :class="showBookEditButton ? 'edit' : ''"
-              >
-                {{ book.name }}
-              </div>
-              <div class="sub">
-                <div class="author">
-                  {{ book.author || "" }}
-                </div>
-                <div class="dot" v-if="book.totalChapterNum">•</div>
-                <div class="size" v-if="book.totalChapterNum">
-                  共{{ book.totalChapterNum }}章
-                </div>
-              </div>
-              <div
-                class="dur-chapter"
-                v-if="!isSearchResult && book.durChapterTitle"
-              >
-                已读：{{ book.durChapterTitle }}
-              </div>
-              <div class="last-chapter" v-if="book.latestChapterTitle">
-                {{
-                  book.lastCheckTime ? dateFormat(book.lastCheckTime) : "最新"
-                }}：{{ book.latestChapterTitle }}
-              </div>
-              <div
-                class="modern-book-progress"
-                v-if="
-                  showModernShelf && !isSearchResult && book.totalChapterNum
-                "
-              >
-                <span
-                  ><i :style="{ width: modernBookProgress(book) + '%' }"></i
-                ></span>
-                <em>{{ modernBookProgress(book) }}%</em>
-              </div>
-              <div v-if="isSearchResult">
-                <el-tag
-                  type="success"
-                  :effect="isNight ? 'dark' : 'light'"
-                  class="setting-connect"
-                  @click.stop="addBookToShelf(book)"
+            <el-tab-pane
+              v-for="group in bookGroupDisplayList"
+              :label="group.groupName"
+              :name="'' + group.groupId"
+              :key="'bookGroup-' + group.groupId"
+            ></el-tab-pane>
+          </el-tabs>
+        </div>
+        <div
+          class="books-wrapper"
+          ref="bookList"
+          @touchstart="handleTouchStart"
+          @touchmove="handleTouchMove"
+          @touchend="handleTouchEnd"
+          @scroll="scrollHandler"
+        >
+          <div class="wrapper">
+            <div
+              class="book"
+              :style="
+                showNavigation && !showModernShelf
+                  ? { minWidth: '360px !important' }
+                  : {}
+              "
+              v-for="book in bookList"
+              :key="book.bookUrl"
+              @click="toDetail(book)"
+            >
+              <div class="cover-img" @click.stop="showBookInfoDialog(book)">
+                <!-- <img class="cover" v-lazy="getCover(book.coverUrl)" alt="" /> -->
+                <el-image
+                  class="cover"
+                  ref="bookCoverList"
+                  :src="getCover(getBookCoverUrl(book), true)"
+                  fit="cover"
+                  lazy
                 >
-                  加入书架
-                </el-tag>
+                </el-image>
+              </div>
+              <div class="info" @click="toDetail(book)">
+                <div class="book-operation">
+                  <i
+                    class="el-icon-close"
+                    v-if="!isSearchResult && showBookEditButton"
+                    @click.stop="deleteBook(book)"
+                  ></i>
+                  <i
+                    class="el-icon-edit"
+                    v-if="!isSearchResult && showBookEditButton"
+                    @click.stop="editBook(book)"
+                  ></i>
+                  <i
+                    class="el-icon-edit"
+                    v-if="isSearchResult"
+                    @click.stop="editBook(book, true)"
+                  ></i>
+                  <el-badge
+                    class="unread-num-badge"
+                    :max="99"
+                    :value="book.totalChapterNum - 1 - book.durChapterIndex"
+                    v-if="
+                      !isSearchResult &&
+                        !showBookEditButton &&
+                        book.totalChapterNum - 1 - book.durChapterIndex > 0
+                    "
+                  />
+                </div>
+                <div
+                  class="name"
+                  slot="reference"
+                  :class="showBookEditButton ? 'edit' : ''"
+                >
+                  {{ book.name }}
+                </div>
+                <div class="sub">
+                  <div class="author">
+                    {{ book.author || "" }}
+                  </div>
+                  <div class="dot" v-if="book.totalChapterNum">•</div>
+                  <div class="size" v-if="book.totalChapterNum">
+                    共{{ book.totalChapterNum }}章
+                  </div>
+                </div>
+                <div
+                  class="dur-chapter"
+                  v-if="!isSearchResult && book.durChapterTitle"
+                >
+                  已读：{{ book.durChapterTitle }}
+                </div>
+                <div class="last-chapter" v-if="book.latestChapterTitle">
+                  {{
+                    book.lastCheckTime
+                      ? dateFormat(book.lastCheckTime)
+                      : "最新"
+                  }}：{{ book.latestChapterTitle }}
+                </div>
+                <div
+                  class="modern-book-progress"
+                  v-if="
+                    showModernShelf && !isSearchResult && book.totalChapterNum
+                  "
+                >
+                  <span
+                    ><i :style="{ width: modernBookProgress(book) + '%' }"></i
+                  ></span>
+                  <em>{{ modernBookProgress(book) }}%</em>
+                </div>
+                <div v-if="isSearchResult">
+                  <el-tag
+                    type="success"
+                    :effect="isNight ? 'dark' : 'light'"
+                    class="setting-connect"
+                    @click.stop="addBookToShelf(book)"
+                  >
+                    加入书架
+                  </el-tag>
+                </div>
               </div>
             </div>
           </div>
@@ -3728,6 +3737,26 @@ export default {
         "--shelf-input": shelf.input
       };
     },
+    shelfMainCardStyle() {
+      const themeConfig = this.$store.getters.currentThemeConfig || {};
+      const background = themeConfig.shelf
+        ? themeConfig.shelf.panel
+        : themeConfig.content || themeConfig.popup;
+      if (!background) {
+        return {};
+      }
+      if (typeof background === "string") {
+        return {
+          background
+        };
+      }
+      return Object.keys(background).reduce((style, key) => {
+        if (background[key] !== null && background[key] !== undefined) {
+          style[key] = background[key];
+        }
+        return style;
+      }, {});
+    },
     bookList() {
       return this.isSearchResult ? this.searchResult : this.showShelfBooks;
     },
@@ -4224,6 +4253,20 @@ export default {
     box-sizing: border-box;
     transition: background-color var(--ui-transition);
 
+    .shelf-main-card {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      box-sizing: border-box;
+      padding: 24px;
+      border: 1px solid var(--ui-border);
+      border-radius: var(--ui-radius);
+      background: var(--ui-surface);
+      box-shadow: var(--ui-shadow-sm);
+      transition: background var(--ui-transition), box-shadow var(--ui-transition), border-color var(--ui-transition);
+    }
+
     .shelf-title {
       font-size: 20px;
       font-weight: 700;
@@ -4460,9 +4503,13 @@ export default {
     }
 
     .shelf-wrapper {
-      background:
-        radial-gradient(circle at 80% 8%, rgba(255, 255, 255, 0.32), transparent 30%),
-        var(--shelf-panel);
+      background: var(--shelf-page);
+      color: var(--shelf-text);
+    }
+
+    .shelf-main-card {
+      border-color: var(--shelf-line);
+      box-shadow: var(--shelf-shadow);
       color: var(--shelf-text);
     }
 
@@ -5004,6 +5051,14 @@ export default {
       display: grid;
       grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.6fr);
       gap: 20px;
+    }
+
+    .shelf-main-card {
+      gap: 0;
+      padding: 22px;
+      border: 1px solid var(--modern-line);
+      border-radius: 14px;
+      box-shadow: var(--modern-shadow);
     }
 
     .modern-continue-card,
@@ -5753,6 +5808,14 @@ export default {
       padding-top: constant(safe-area-inset-top) !important;
       padding-top: env(safe-area-inset-top) !important;
 
+      .shelf-main-card {
+        min-height: 100%;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+      }
+
       .shelf-title {
         padding: 20px 24px 0 24px;
       }
@@ -5764,6 +5827,13 @@ export default {
 
       &.modern-shelf {
         padding: 16px;
+
+        .shelf-main-card {
+          padding: 16px;
+          border: 1px solid var(--modern-line);
+          border-radius: 14px;
+          box-shadow: var(--modern-shadow);
+        }
 
         .modern-topbar {
           flex-direction: column;

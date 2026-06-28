@@ -18,7 +18,9 @@ export default {
       outroSkipped: false,
       introApplied: false,
       iframeStyle: {},
-      iframeInited: false
+      iframeInited: false,
+      iframeSelectionTimer: null,
+      unbindIframeSelection: null
     };
   },
   props: [
@@ -109,6 +111,14 @@ export default {
     }
     window.contentCom = this;
     this.loadCustomFontFamil();
+  },
+  beforeDestroy() {
+    if (this.unbindIframeSelection) {
+      this.unbindIframeSelection();
+    }
+    if (this.iframeSelectionTimer) {
+      clearTimeout(this.iframeSelectionTimer);
+    }
   },
   computed: {
     readingBook() {
@@ -488,6 +498,7 @@ export default {
           ref="iframe"
           style={this.iframeStyle}
           src={this.$store.getters.apiRoot + this.content}
+          onLoad={this.bindIframeSelectionEvents}
         ></iframe>
       );
     },
@@ -510,11 +521,13 @@ export default {
           }
           if (message.event === "inited") {
             this.iframeStyle = {};
+            this.bindIframeSelectionEvents();
             // 设置iframe样式
             this.setIframeStyle();
             // 同步iframe高度
             this.syncIframeHeight();
           } else if (message.event === "load") {
+            this.bindIframeSelectionEvents();
             setTimeout(() => {
               this.$emit("iframeLoad");
               this.$emit("epubLocationChange", message.data);
@@ -532,6 +545,11 @@ export default {
             this.$emit("epubClickHash", message.data);
           } else if (message.event === "keydown") {
             this.$emit("epubKeydown", message.data);
+          } else if (message.event === "selection") {
+            const selection = this.normalizeIframeSelection(message.data);
+            if (selection) {
+              this.$emit("epubSelection", selection);
+            }
           } else if (message.event === "previewImageList") {
             this.$store.commit("setPreviewImageIndex", message.data.imageIndex);
             this.$store.commit("setPreviewImgList", message.data.imageList);
@@ -541,6 +559,203 @@ export default {
           // }
         }
       });
+    },
+    bindIframeSelectionEvents() {
+      if (!this.$refs.iframe) {
+        return;
+      }
+      if (this.unbindIframeSelection) {
+        this.unbindIframeSelection();
+        this.unbindIframeSelection = null;
+      }
+      let iframeWindow;
+      let iframeDocument;
+      try {
+        iframeWindow = this.$refs.iframe.contentWindow;
+        iframeDocument =
+          this.$refs.iframe.contentDocument ||
+          (iframeWindow && iframeWindow.document);
+      } catch (error) {
+        return;
+      }
+      if (!iframeWindow || !iframeDocument) {
+        return;
+      }
+      const notify = delay => {
+        this.scheduleIframeSelection(delay);
+      };
+      const onSelectionChange = () => notify(180);
+      const onMouseUp = () => notify(0);
+      const onTouchEnd = () => notify(180);
+      const onKeyUp = () => notify(0);
+      iframeDocument.addEventListener("selectionchange", onSelectionChange);
+      iframeDocument.addEventListener("mouseup", onMouseUp, false);
+      iframeDocument.addEventListener("touchend", onTouchEnd, false);
+      iframeWindow.addEventListener("keyup", onKeyUp);
+      this.unbindIframeSelection = () => {
+        try {
+          iframeDocument.removeEventListener(
+            "selectionchange",
+            onSelectionChange
+          );
+          iframeDocument.removeEventListener("mouseup", onMouseUp, false);
+          iframeDocument.removeEventListener("touchend", onTouchEnd, false);
+          iframeWindow.removeEventListener("keyup", onKeyUp);
+        } catch (error) {
+          //
+        }
+      };
+    },
+    scheduleIframeSelection(delay) {
+      if (this.iframeSelectionTimer) {
+        clearTimeout(this.iframeSelectionTimer);
+      }
+      this.iframeSelectionTimer = setTimeout(() => {
+        this.iframeSelectionTimer = null;
+        this.emitIframeSelectionFromFrame();
+      }, delay || 0);
+    },
+    emitIframeSelectionFromFrame() {
+      const selection = this.getIframeSelection();
+      if (selection) {
+        this.$emit("epubSelection", selection);
+      }
+    },
+    getIframeSelection() {
+      let iframeWindow;
+      let iframeDocument;
+      try {
+        iframeWindow = this.$refs.iframe && this.$refs.iframe.contentWindow;
+        iframeDocument =
+          this.$refs.iframe &&
+          (this.$refs.iframe.contentDocument ||
+            (iframeWindow && iframeWindow.document));
+      } catch (error) {
+        return null;
+      }
+      if (!iframeWindow || !iframeDocument) {
+        return null;
+      }
+      let text = "";
+      try {
+        if (iframeWindow.getSelection) {
+          text = iframeWindow.getSelection().toString();
+        } else if (
+          iframeDocument.selection &&
+          iframeDocument.selection.type != "Control"
+        ) {
+          text = iframeDocument.selection.createRange().text;
+        }
+      } catch (error) {
+        return null;
+      }
+      const pureText = (text || "").replace(/^\s+/, "").replace(/\s+$/, "");
+      if (!pureText) {
+        return null;
+      }
+      return this.normalizeIframeSelection({
+        text: pureText,
+        rect: this.getIframeSelectionRect(iframeWindow, iframeDocument)
+      });
+    },
+    rectToObject(rect) {
+      if (!rect) {
+        return null;
+      }
+      const left = typeof rect.left === "number" ? rect.left : 0;
+      const top = typeof rect.top === "number" ? rect.top : 0;
+      const right = typeof rect.right === "number" ? rect.right : left;
+      const bottom = typeof rect.bottom === "number" ? rect.bottom : top;
+      const width = typeof rect.width === "number" ? rect.width : right - left;
+      const height =
+        typeof rect.height === "number" ? rect.height : bottom - top;
+      return {
+        top,
+        right,
+        bottom,
+        left,
+        width,
+        height
+      };
+    },
+    getIframeSelectionRect(iframeWindow, iframeDocument) {
+      try {
+        if (iframeWindow.getSelection) {
+          const selection = iframeWindow.getSelection();
+          if (!selection || !selection.rangeCount) {
+            return null;
+          }
+          const range = selection.getRangeAt(0);
+          const rects = Array.prototype.slice
+            .call(range.getClientRects())
+            .filter(rect => rect.width || rect.height);
+          if (!rects.length) {
+            return this.rectToObject(range.getBoundingClientRect());
+          }
+          return this.rectToObject(
+            rects.reduce((result, rect) => {
+              const left = Math.min(result.left, rect.left);
+              const top = Math.min(result.top, rect.top);
+              const right = Math.max(result.right, rect.right);
+              const bottom = Math.max(result.bottom, rect.bottom);
+              return {
+                top,
+                right,
+                bottom,
+                left,
+                width: right - left,
+                height: bottom - top
+              };
+            }, this.rectToObject(rects[0]))
+          );
+        }
+        if (
+          iframeDocument.selection &&
+          iframeDocument.selection.type != "Control"
+        ) {
+          return this.rectToObject(
+            iframeDocument.selection.createRange().getBoundingClientRect()
+          );
+        }
+      } catch (error) {
+        return null;
+      }
+      return null;
+    },
+    normalizeIframeSelection(data) {
+      const text = data && data.text ? data.text : "";
+      if (!text || !this.$refs.iframe) {
+        return null;
+      }
+      const rect = data.rect;
+      if (!rect) {
+        return {
+          text,
+          rect: null
+        };
+      }
+      const iframeRect = this.$refs.iframe.getBoundingClientRect();
+      const left = iframeRect.left + (rect.left || 0);
+      const top = iframeRect.top + (rect.top || 0);
+      const width =
+        typeof rect.width === "number"
+          ? rect.width
+          : Math.max(0, (rect.right || rect.left || 0) - (rect.left || 0));
+      const height =
+        typeof rect.height === "number"
+          ? rect.height
+          : Math.max(0, (rect.bottom || rect.top || 0) - (rect.top || 0));
+      return {
+        text,
+        rect: {
+          top,
+          right: left + width,
+          bottom: top + height,
+          left,
+          width,
+          height
+        }
+      };
     },
     syncIframeHeight() {
       this.sendToIframe("execute", {
@@ -619,6 +834,12 @@ export default {
           }),
           "*"
         );
+    },
+    clearIframeSelection() {
+      this.sendToIframe("execute", {
+        script:
+          "if (window.getSelection) { window.getSelection().removeAllRanges(); } else if (document.selection) { document.selection.empty(); }"
+      });
     },
     formatTime(val) {
       if (!val) {
