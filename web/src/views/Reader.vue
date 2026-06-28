@@ -379,6 +379,140 @@
       </div>
     </div>
     <div
+      v-show="selectionToolbarVisible"
+      ref="selectionToolbar"
+      class="selection-floating-toolbar"
+      :style="selectionToolbarStyle"
+      @mousedown.stop.prevent
+      @touchstart.stop
+      @click.stop
+    >
+      <button
+        class="selection-toolbar-btn primary"
+        type="button"
+        @click="runSelectionToolbarAction('dictionary')"
+      >
+        <i class="el-icon-reading"></i>
+        <span>字典</span>
+      </button>
+      <button
+        class="selection-toolbar-btn"
+        type="button"
+        @click="runSelectionToolbarAction('filter')"
+      >
+        <i class="el-icon-set-up"></i>
+        <span>过滤</span>
+      </button>
+      <button
+        class="selection-toolbar-btn"
+        type="button"
+        @click="runSelectionToolbarAction('bookmark')"
+      >
+        <i class="el-icon-collection-tag"></i>
+        <span>书签</span>
+      </button>
+      <button
+        class="selection-toolbar-btn"
+        type="button"
+        @click="runSelectionToolbarAction('search')"
+      >
+        <i class="el-icon-search"></i>
+        <span>搜索</span>
+      </button>
+      <button
+        class="selection-toolbar-btn icon-only"
+        type="button"
+        title="复制"
+        @click="runSelectionToolbarAction('copy')"
+      >
+        <i class="el-icon-document-copy"></i>
+      </button>
+    </div>
+    <el-dialog
+      title="字典"
+      :visible.sync="dictionaryVisible"
+      :width="dictionaryDialogWidth"
+      custom-class="dictionary-dialog"
+      append-to-body
+    >
+      <div class="dictionary-panel" v-loading="dictionaryLoading">
+        <div class="dictionary-word-row">
+          <div class="dictionary-word">
+            {{ dictionaryEntry.title || dictionaryEntry.query }}
+          </div>
+          <el-button
+            size="mini"
+            icon="el-icon-headset"
+            @click="playDictionaryPronunciation"
+            :disabled="!dictionaryEntry.text"
+          >
+            朗读
+          </el-button>
+        </div>
+        <div
+          class="dictionary-phonetics"
+          v-if="dictionaryEntry.phonetics.length"
+        >
+          <span
+            class="dictionary-phonetic"
+            v-for="(phonetic, index) in dictionaryEntry.phonetics"
+            :key="index"
+            >{{ phonetic }}</span
+          >
+        </div>
+        <div class="dictionary-tip" v-if="dictionaryEntry.isFallback">
+          未找到完整词条，已显示相关字词。
+        </div>
+        <div class="dictionary-section" v-if="dictionaryEntry.entries.length">
+          <div class="dictionary-section-title">释义</div>
+          <div
+            class="dictionary-meaning"
+            v-for="(entry, index) in dictionaryEntry.entries"
+            :key="index"
+          >
+            <div class="dictionary-part">
+              <span v-if="entry.title">{{ entry.title }}</span>
+              <span v-if="entry.pinyin">{{ entry.pinyin }}</span>
+              <span v-if="entry.bopomofo">{{ entry.bopomofo }}</span>
+            </div>
+            <ol>
+              <li
+                v-for="(definition, definitionIndex) in entry.definitions"
+                :key="definitionIndex"
+              >
+                <div>
+                  <span class="dictionary-type" v-if="definition.type">
+                    {{ definition.type }}
+                  </span>
+                  {{ definition.def }}
+                </div>
+                <div class="dictionary-example" v-if="definition.examples">
+                  {{ definition.examples }}
+                </div>
+                <div class="dictionary-example" v-if="definition.quotes">
+                  {{ definition.quotes }}
+                </div>
+                <div class="dictionary-example" v-if="definition.synonyms">
+                  近义：{{ definition.synonyms }}
+                </div>
+                <div class="dictionary-example" v-if="definition.antonyms">
+                  反义：{{ definition.antonyms }}
+                </div>
+              </li>
+            </ol>
+          </div>
+        </div>
+        <div class="dictionary-error" v-if="dictionaryError">
+          {{ dictionaryError }}
+        </div>
+      </div>
+      <div slot="footer" class="dialog-footer">
+        <el-button size="mini" @click="dictionaryVisible = false">
+          关闭
+        </el-button>
+      </div>
+    </el-dialog>
+    <div
       class="chapter"
       ref="content"
       :class="chapterClass"
@@ -561,14 +695,29 @@ export default {
       //
     }
     this.$Lazyload.$on("loaded", this.lazyloadHandler);
+    document.addEventListener("mousedown", this.selectionOutsideHandler, true);
+    document.addEventListener("touchstart", this.selectionOutsideHandler, true);
+    window.addEventListener("resize", this.hideSelectionToolbar);
   },
   deactivated() {
     this.saveBookProgress();
     this.startSavePosition = false;
     this.lastReadingBook = this.$store.getters.readingBook;
+    this.hideSelectionToolbar();
     this.timer && clearInterval(this.timer);
     window.removeEventListener("keydown", this.keydownHandler);
     window.removeEventListener("scroll", this.scrollHandler);
+    document.removeEventListener(
+      "mousedown",
+      this.selectionOutsideHandler,
+      true
+    );
+    document.removeEventListener(
+      "touchstart",
+      this.selectionOutsideHandler,
+      true
+    );
+    window.removeEventListener("resize", this.hideSelectionToolbar);
     this.unwatchFn && this.unwatchFn();
     this.releaseWakeLockFn && this.releaseWakeLockFn();
     this.$Lazyload.$off("loaded", this.lazyloadHandler);
@@ -718,8 +867,24 @@ export default {
       currentParagraph: null,
       lastSelection: false,
       selectionActionPrompting: false,
+      selectionToolbarVisible: false,
+      selectionToolbarText: "",
+      selectionToolbarStyle: {},
       showTextFilterPrompting: false,
       showAddBookmarking: false,
+      dictionaryVisible: false,
+      dictionaryLoading: false,
+      dictionaryError: "",
+      dictionaryLookupId: 0,
+      dictionaryCache: {},
+      dictionaryEntry: {
+        text: "",
+        query: "",
+        title: "",
+        isFallback: false,
+        phonetics: [],
+        entries: []
+      },
 
       startSavePosition: false,
 
@@ -870,6 +1035,9 @@ export default {
       } else {
         return this.windowSize.width - 33;
       }
+    },
+    dictionaryDialogWidth() {
+      return this.$store.state.miniInterface ? "92vw" : "520px";
     },
     readingProgress() {
       if (this.catalog && this.catalog.length) {
@@ -1907,6 +2075,10 @@ export default {
     },
     eventHandler(point) {
       // console.log(point);
+      if (this.suppressSelectionToolbarTap) {
+        this.suppressSelectionToolbarTap = false;
+        return;
+      }
       if (this.checkSelection(true)) {
         // 选择文本
         this.ignoreNextClick = true;
@@ -1916,7 +2088,8 @@ export default {
         this.popBookSourceVisible ||
         this.popBookShelfVisible ||
         this.popCataVisible ||
-        this.readSettingsVisible
+        this.readSettingsVisible ||
+        this.dictionaryVisible
       ) {
         if (this.isEpub) {
           this.popBookSourceVisible = false;
@@ -1988,11 +2161,26 @@ export default {
     },
     keydownHandler(event, force) {
       // console.log("keyup", event);
+      const keyCodeMap = {
+        37: "ArrowLeft",
+        38: "ArrowUp",
+        39: "ArrowRight",
+        40: "ArrowDown",
+        27: "Escape"
+      };
+      const eventKey = event.key || keyCodeMap[event.keyCode];
+      if (this.selectionToolbarVisible) {
+        if (eventKey === "Escape") {
+          this.hideSelectionToolbar(true);
+        }
+        return;
+      }
       if (
         this.popBookSourceVisible ||
         this.popBookShelfVisible ||
         this.popCataVisible ||
         this.readSettingsVisible ||
+        this.dictionaryVisible ||
         this.selectionActionPrompting ||
         this.showTextFilterPrompting
       ) {
@@ -2004,14 +2192,6 @@ export default {
       if (this.isAudio) {
         return;
       }
-      const keyCodeMap = {
-        37: "ArrowLeft",
-        38: "ArrowUp",
-        39: "ArrowRight",
-        40: "ArrowDown",
-        27: "Escape"
-      };
-      const eventKey = event.key || keyCodeMap[event.keyCode];
       switch (eventKey) {
         case "ArrowLeft":
           event.preventDefault && event.preventDefault();
@@ -2071,6 +2251,8 @@ export default {
             this.showSelectionActionMenu(text);
           }
         }, 200);
+      } else if (!text && show) {
+        this.hideSelectionToolbar(false);
       }
       return text;
     },
@@ -2089,85 +2271,158 @@ export default {
       }
     },
     async showSelectionActionMenu(text) {
-      if (this.selectionActionPrompting) {
-        return;
-      }
       const pureText = (text || "").replace(/^\s+/, "").replace(/\s+$/, "");
       if (!pureText) {
+        this.hideSelectionToolbar(false);
         return;
       }
-      const h = this.$createElement;
-      const preview =
-        pureText.length > 120 ? pureText.slice(0, 120) + "..." : pureText;
-      const closeAndRun = handler => {
-        this.$msgbox.close();
-        this.selectionActionPrompting = false;
-        this.clearTextSelection();
-        handler && handler();
+      const rect = this.getSelectionRect();
+      this.selectionToolbarText = pureText;
+      this.selectionToolbarStyle = {
+        left: "50%",
+        top: "0px",
+        opacity: 0
       };
-      this.selectionActionPrompting = true;
-      this.$msgbox({
-        title: "选中文字",
-        message: h("div", { class: "selection-action-panel" }, [
-          h("div", { class: "selection-action-preview" }, preview),
-          h("div", { class: "selection-action-buttons" }, [
-            h(
-              "el-button",
-              {
-                props: { type: "primary", size: "mini" },
-                on: {
-                  click: () =>
-                    closeAndRun(() => this.showTextFilterPrompt(pureText))
-                }
-              },
-              "添加过滤"
-            ),
-            h(
-              "el-button",
-              {
-                props: { size: "mini" },
-                on: {
-                  click: () => closeAndRun(() => this.showAddBookmark(pureText))
-                }
-              },
-              "添加书签"
-            ),
-            h(
-              "el-button",
-              {
-                props: { size: "mini" },
-                on: {
-                  click: () =>
-                    closeAndRun(() => this.searchSelectedText(pureText))
-                }
-              },
-              "书内搜索"
-            ),
-            h(
-              "el-button",
-              {
-                props: { size: "mini" },
-                on: {
-                  click: () =>
-                    closeAndRun(() => this.copySelectionText(pureText))
-                }
-              },
-              "复制"
-            )
-          ])
-        ]),
-        showConfirmButton: false,
-        showCancelButton: false,
-        closeOnClickModal: true,
-        closeOnPressEscape: true,
-        distinguishCancelAndClose: true,
-        beforeClose: (action, instance, done) => {
-          this.selectionActionPrompting = false;
-          done();
-        }
-      }).catch(() => {
-        this.selectionActionPrompting = false;
+      this.selectionToolbarVisible = true;
+      this.$nextTick(() => {
+        this.positionSelectionToolbar(rect);
       });
+    },
+    getSelectionRect() {
+      try {
+        if (window.getSelection) {
+          const selection = window.getSelection();
+          if (!selection || !selection.rangeCount) {
+            return null;
+          }
+          const range = selection.getRangeAt(0);
+          const rects = Array.prototype.slice
+            .call(range.getClientRects())
+            .filter(rect => rect.width || rect.height);
+          if (!rects.length) {
+            const rect = range.getBoundingClientRect();
+            return rect.width || rect.height ? rect : null;
+          }
+          return rects.reduce(
+            (result, rect) => ({
+              top: Math.min(result.top, rect.top),
+              right: Math.max(result.right, rect.right),
+              bottom: Math.max(result.bottom, rect.bottom),
+              left: Math.min(result.left, rect.left),
+              width:
+                Math.max(result.right, rect.right) -
+                Math.min(result.left, rect.left),
+              height:
+                Math.max(result.bottom, rect.bottom) -
+                Math.min(result.top, rect.top)
+            }),
+            {
+              top: rects[0].top,
+              right: rects[0].right,
+              bottom: rects[0].bottom,
+              left: rects[0].left,
+              width: rects[0].width,
+              height: rects[0].height
+            }
+          );
+        }
+        if (document.selection && document.selection.type != "Control") {
+          return document.selection.createRange().getBoundingClientRect();
+        }
+      } catch (error) {
+        //
+      }
+      return null;
+    },
+    positionSelectionToolbar(rect) {
+      if (!this.selectionToolbarVisible) {
+        return;
+      }
+      const toolbar = this.$refs.selectionToolbar;
+      const viewportWidth = window.innerWidth || this.windowSize.width;
+      const viewportHeight = window.innerHeight || this.windowSize.height;
+      const margin = 8;
+      const toolbarWidth = toolbar
+        ? toolbar.offsetWidth
+        : Math.min(360, viewportWidth - margin * 2);
+      const toolbarHeight = toolbar ? toolbar.offsetHeight : 42;
+      const targetRect = rect || {
+        left: viewportWidth / 2,
+        right: viewportWidth / 2,
+        top: viewportHeight / 2,
+        bottom: viewportHeight / 2,
+        width: 0,
+        height: 0
+      };
+      const centerX =
+        targetRect.left +
+        (targetRect.width || targetRect.right - targetRect.left) / 2;
+      const minLeft = margin + toolbarWidth / 2;
+      const maxLeft = viewportWidth - margin - toolbarWidth / 2;
+      const left =
+        maxLeft > minLeft
+          ? Math.min(Math.max(centerX, minLeft), maxLeft)
+          : viewportWidth / 2;
+      let top = targetRect.top - toolbarHeight - 10;
+      if (top < margin) {
+        top = targetRect.bottom + 10;
+      }
+      if (top + toolbarHeight > viewportHeight - margin) {
+        top = Math.max(margin, viewportHeight - toolbarHeight - margin);
+      }
+      this.selectionToolbarStyle = {
+        left: left + "px",
+        top: top + "px",
+        opacity: 1
+      };
+    },
+    hideSelectionToolbar(clearSelection) {
+      this.selectionToolbarVisible = false;
+      this.selectionToolbarText = "";
+      this.selectionToolbarStyle = {};
+      this.selectionActionPrompting = false;
+      if (clearSelection === true) {
+        this.clearTextSelection();
+      }
+    },
+    selectionOutsideHandler(event) {
+      if (!this.selectionToolbarVisible) {
+        return;
+      }
+      const toolbar = this.$refs.selectionToolbar;
+      if (toolbar && toolbar.contains(event.target)) {
+        return;
+      }
+      if (this.$refs.content && this.$refs.content.contains(event.target)) {
+        this.suppressSelectionToolbarTap = true;
+        this.ignoreNextClick = true;
+      }
+      this.hideSelectionToolbar(false);
+    },
+    runSelectionToolbarAction(action) {
+      const text = this.selectionToolbarText;
+      if (!text) {
+        this.hideSelectionToolbar(true);
+        return;
+      }
+      this.hideSelectionToolbar(true);
+      switch (action) {
+        case "dictionary":
+          this.lookupSelectedText(text);
+          break;
+        case "filter":
+          this.showTextFilterPrompt(text);
+          break;
+        case "bookmark":
+          this.showAddBookmark(text);
+          break;
+        case "search":
+          this.searchSelectedText(text);
+          break;
+        case "copy":
+          this.copySelectionText(text);
+          break;
+      }
     },
     async copySelectionText(text) {
       try {
@@ -2190,6 +2445,243 @@ export default {
     },
     searchSelectedText(text) {
       this.showSearchBookContentDialog(text);
+    },
+    normalizeDictionaryText(text) {
+      return (text || "")
+        .replace(/\s+/g, " ")
+        .replace(/^\s+/, "")
+        .replace(/\s+$/, "");
+    },
+    createEmptyDictionaryEntry(text) {
+      return {
+        text,
+        query: text,
+        title: "",
+        isFallback: false,
+        phonetics: [],
+        entries: []
+      };
+    },
+    getChineseDictionaryQuery(text) {
+      return this.normalizeDictionaryText(text).replace(
+        /[^\u3400-\u9fff]/g,
+        ""
+      );
+    },
+    async lookupSelectedText(text) {
+      const query = this.getChineseDictionaryQuery(text);
+      if (!query) {
+        this.$message.error("中文字典仅支持中文词语");
+        return;
+      }
+      if (query.length > 20) {
+        this.$message.error("选择内容过长，请选择中文词语或短句");
+        return;
+      }
+      const lookupWord = traditionalized(query);
+      const cacheKey = lookupWord + "@" + this.config.chineseFont;
+      this.dictionaryVisible = true;
+      this.dictionaryError = "";
+      this.dictionaryEntry = this.createEmptyDictionaryEntry(query);
+      this.dictionaryLoading = false;
+      if (this.dictionaryCache[cacheKey]) {
+        this.dictionaryEntry = { ...this.dictionaryCache[cacheKey] };
+        return;
+      }
+
+      const lookupId = new Date().getTime();
+      this.dictionaryLookupId = lookupId;
+      this.dictionaryLoading = true;
+      const entry = await this.fetchChineseDictionary(query, lookupWord).catch(
+        () => null
+      );
+      if (this.dictionaryLookupId !== lookupId) {
+        return;
+      }
+      if (entry && entry.entries.length) {
+        this.dictionaryEntry = entry;
+        this.$set(this.dictionaryCache, cacheKey, { ...entry });
+      } else {
+        this.dictionaryEntry = this.createEmptyDictionaryEntry(query);
+        this.dictionaryError = "未查到中文释义，请尝试选择更短的词语";
+      }
+      this.dictionaryLoading = false;
+    },
+    async fetchJson(url, timeout) {
+      timeout = timeout || 10000;
+      if (!window.AbortController) {
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error("Request failed");
+        }
+        return await response.json();
+      }
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeout);
+      try {
+        const response = await fetch(url, { signal: controller.signal });
+        if (!response.ok) {
+          throw new Error("Request failed");
+        }
+        return await response.json();
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+    async fetchChineseDictionary(query, lookupWord) {
+      const directEntry = await this.fetchMoedictEntry(query, lookupWord);
+      if (directEntry && directEntry.entries.length) {
+        return directEntry;
+      }
+
+      const suggestionData = await this.fetchJson(
+        "https://www.moedict.tw/" + encodeURIComponent(lookupWord) + ".json"
+      );
+      const terms = (suggestionData.terms || [])
+        .map(term => traditionalized(this.stripDictionaryMarkup(term)))
+        .filter(term => term)
+        .slice(0, 4);
+      if (!terms.length) {
+        return null;
+      }
+      const entries = await Promise.all(
+        terms.map(term => this.fetchMoedictEntry(query, term).catch(() => null))
+      );
+      const fallbackEntry = this.createEmptyDictionaryEntry(query);
+      fallbackEntry.title = this.formatDictionaryText(lookupWord);
+      fallbackEntry.isFallback = true;
+      entries
+        .filter(entry => entry && entry.entries.length)
+        .forEach(entry => {
+          fallbackEntry.phonetics = fallbackEntry.phonetics.concat(
+            entry.phonetics
+          );
+          fallbackEntry.entries = fallbackEntry.entries.concat(entry.entries);
+        });
+      fallbackEntry.phonetics = Array.from(new Set(fallbackEntry.phonetics));
+      return fallbackEntry;
+    },
+    async fetchMoedictEntry(query, lookupWord) {
+      const data = await this.fetchJson(
+        "https://www.moedict.tw/uni/" + encodeURIComponent(lookupWord) + ".json"
+      );
+      return this.parseMoedictEntry(query, data);
+    },
+    parseMoedictEntry(query, data) {
+      if (!data || !data.title || !Array.isArray(data.heteronyms)) {
+        return null;
+      }
+      const title = this.formatDictionaryText(
+        this.stripDictionaryMarkup(data.title)
+      );
+      const phonetics = [];
+      const entries = [];
+      data.heteronyms.forEach(heteronym => {
+        const pinyin = this.formatDictionaryText(
+          this.stripDictionaryMarkup(heteronym.pinyin || "")
+        );
+        const bopomofo = this.stripDictionaryMarkup(heteronym.bopomofo || "");
+        const phonetic = [pinyin, bopomofo].filter(v => v).join(" / ");
+        if (phonetic && phonetics.indexOf(phonetic) < 0) {
+          phonetics.push(phonetic);
+        }
+        const definitions = (heteronym.definitions || [])
+          .map(definition => ({
+            type: this.formatDictionaryText(
+              this.stripDictionaryMarkup(definition.type || "")
+            ),
+            def: this.formatDictionaryText(
+              this.stripDictionaryMarkup(definition.def || "")
+            ),
+            examples: this.formatDictionaryText(
+              this.joinDictionaryText(definition.example)
+            ),
+            quotes: this.formatDictionaryText(
+              this.joinDictionaryText(definition.quote)
+            ),
+            synonyms: this.formatDictionaryText(
+              this.stripDictionaryMarkup(definition.synonyms || "")
+            ),
+            antonyms: this.formatDictionaryText(
+              this.stripDictionaryMarkup(definition.antonyms || "")
+            )
+          }))
+          .filter(definition => definition.def)
+          .slice(0, 8);
+        if (definitions.length) {
+          entries.push({
+            title,
+            pinyin,
+            bopomofo,
+            definitions
+          });
+        }
+      });
+      return {
+        text: query,
+        query,
+        title,
+        isFallback: false,
+        phonetics,
+        entries
+      };
+    },
+    joinDictionaryText(value) {
+      if (Array.isArray(value)) {
+        return value.map(v => this.stripDictionaryMarkup(v)).join(" ");
+      }
+      return this.stripDictionaryMarkup(value || "");
+    },
+    stripDictionaryMarkup(text) {
+      const div = document.createElement("div");
+      div.innerHTML = String(text || "");
+      return (div.textContent || div.innerText || "")
+        .replace(/[`~]/g, "")
+        .replace(/\s+/g, " ")
+        .replace(/^\s+/, "")
+        .replace(/\s+$/, "");
+    },
+    formatDictionaryText(text) {
+      if (!text) {
+        return "";
+      }
+      return this.config.chineseFont === "简体" ? simplized(text) : text;
+    },
+    playDictionaryPronunciation() {
+      const text =
+        this.dictionaryEntry.title ||
+        this.dictionaryEntry.text ||
+        this.dictionaryEntry.query;
+      if (!text) {
+        return;
+      }
+      this.speakDictionaryText(text);
+    },
+    speakDictionaryText(text) {
+      if (!this.speechAvalable) {
+        this.$message.error("当前浏览器不支持朗读");
+        return;
+      }
+      if (this.speechSpeaking) {
+        this.stopSpeech();
+      } else {
+        window.speechSynthesis.cancel();
+      }
+      const utterance = new SpeechSynthesisUtterance(text);
+      const language = "zh-CN";
+      const languagePrefix = language.split("-")[0];
+      const voice =
+        this.voiceList.find(v => v.lang === language) ||
+        this.voiceList.find(
+          v => v.lang && v.lang.indexOf(languagePrefix) === 0
+        );
+      if (voice) {
+        utterance.voice = voice;
+      }
+      utterance.lang = voice ? voice.lang : language;
+      utterance.rate = this.speechRate || 1;
+      utterance.pitch = this.speechPitch || 1;
+      window.speechSynthesis.speak(utterance);
     },
     getUniqueReplaceRuleName(text) {
       const textPreview =
@@ -2588,6 +3080,9 @@ export default {
       return this.$refs.top.getBoundingClientRect();
     },
     scrollHandler() {
+      if (this.selectionToolbarVisible) {
+        this.hideSelectionToolbar(false);
+      }
       const scrollTop =
         document.documentElement.scrollTop || document.body.scrollTop;
       if (!this.isSlideRead) {
@@ -4019,37 +4514,219 @@ export default {
     box-shadow: none;
   }
 }
-.selection-action-panel {
-  .selection-action-preview {
-    max-height: 140px;
-    overflow: auto;
-    padding: 10px;
-    border: 1px solid var(--ui-border);
-    border-radius: var(--ui-radius-sm);
-    background: var(--ui-bg);
-    color: var(--ui-text);
-    white-space: pre-wrap;
-    word-break: break-word;
-    line-height: 1.6;
+.selection-floating-toolbar {
+  position: fixed;
+  z-index: 3005;
+  display: flex;
+  align-items: center;
+  max-width: calc(100vw - 16px);
+  overflow-x: auto;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid rgba(0,0,0,.08);
+  border-radius: var(--ui-radius-sm);
+  background: rgba(255,255,255,.96);
+  box-shadow: var(--ui-shadow-lg);
+  transform: translateX(-50%);
+  transition: opacity var(--ui-transition);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  -webkit-overflow-scrolling: touch;
+
+  &::-webkit-scrollbar {
+    display: none;
   }
 
-  .selection-action-buttons {
+  .selection-toolbar-btn {
+    flex: 0 0 auto;
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 12px;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    height: 32px;
+    padding: 0 9px;
+    border: none;
+    border-radius: var(--ui-radius-sm);
+    background: transparent;
+    color: var(--ui-text);
+    font-size: 13px;
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+    outline: none;
 
-    .el-button {
-      margin-left: 0;
+    &:hover {
+      background: rgba(79,110,247,.08);
+      color: var(--ui-accent);
+    }
+
+    &.primary {
+      background: var(--ui-accent);
+      color: #fff;
+    }
+
+    &.primary:hover {
+      background: var(--ui-accent-hover);
+      color: #fff;
+    }
+
+    &.icon-only {
+      width: 32px;
+      padding: 0;
     }
   }
 }
+.dictionary-dialog {
+  border-radius: var(--ui-radius);
+
+  .el-dialog__body {
+    padding-top: 12px;
+    padding-bottom: 8px;
+  }
+
+  .dictionary-panel {
+    min-height: 120px;
+    color: var(--ui-text);
+  }
+
+  .dictionary-word-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .dictionary-word {
+    flex: 1;
+    min-width: 0;
+    font-size: 22px;
+    line-height: 1.35;
+    font-weight: 600;
+    word-break: break-word;
+  }
+
+  .dictionary-phonetics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  .dictionary-phonetic {
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--ui-muted);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+
+  .dictionary-section {
+    margin-top: 16px;
+  }
+
+  .dictionary-section-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ui-muted);
+
+    span {
+      font-weight: 400;
+    }
+  }
+
+  .dictionary-tip {
+    margin-top: 8px;
+    color: var(--ui-muted);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .dictionary-meaning {
+    padding: 10px 0;
+    border-top: 1px solid var(--ui-border);
+
+    &:first-of-type {
+      border-top: none;
+      padding-top: 0;
+    }
+
+    ol {
+      margin: 6px 0 0 20px;
+      padding: 0;
+    }
+
+    li {
+      padding: 4px 0;
+      line-height: 1.55;
+      word-break: break-word;
+    }
+  }
+
+  .dictionary-part {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--ui-muted);
+  }
+
+  .dictionary-type {
+    display: inline-block;
+    margin-right: 4px;
+    color: var(--ui-muted);
+  }
+
+  .dictionary-example {
+    margin-top: 4px;
+    color: var(--ui-muted);
+    font-size: 13px;
+  }
+
+  .dictionary-error {
+    margin-top: 16px;
+    color: #d9534f;
+    line-height: 1.6;
+  }
+}
 .night-theme {
-  .selection-action-panel {
-    .selection-action-preview {
-      border-color: rgba(255,255,255,.1);
-      background: #1f2026;
+  .dictionary-dialog {
+    background: #24252b;
+    color: #c5c8ce;
+
+    .el-dialog__title,
+    .dictionary-panel,
+    .dictionary-word {
       color: #c5c8ce;
+    }
+
+    .dictionary-meaning {
+      border-color: rgba(255,255,255,.1);
+    }
+
+    .dictionary-phonetic,
+    .dictionary-section-title,
+    .dictionary-tip,
+    .dictionary-part,
+    .dictionary-type,
+    .dictionary-example {
+      color: #909399;
+    }
+  }
+
+  .selection-floating-toolbar {
+    border-color: rgba(255,255,255,.1);
+    background: rgba(36,37,43,.96);
+
+    .selection-toolbar-btn {
+      color: #c5c8ce;
+
+      &:hover {
+        background: rgba(79,110,247,.16);
+        color: #fff;
+      }
     }
   }
 
