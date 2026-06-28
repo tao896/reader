@@ -596,6 +596,7 @@ import {
   editDistance
 } from "../plugins/helper";
 import { defaultReplaceRule, defaultBookmark } from "../plugins/config.js";
+import { applyReplaceRulesToText } from "../plugins/replace-rule";
 import eventBus from "../plugins/eventBus";
 // eslint-disable-next-line no-useless-escape
 const symboRegex = /[\u2000-\u206F\u2E00-\u2E7F\\'!"#$%&\(\)*+,-\./:;<=>?@\[\]^_`{\|}~，。？《》；：、«]/g;
@@ -1505,50 +1506,11 @@ export default {
       if (!content) {
         return content;
       }
-      try {
-        this.filterRules.forEach(rule => {
-          if (!rule || !rule.pattern) {
-            return;
-          }
-          if (
-            typeof rule.isEnabled !== "undefined" &&
-            rule.isEnabled === false
-          ) {
-            return;
-          }
-          const scopeText =
-            typeof rule.scope === "string"
-              ? rule.scope.replace(/^\s+|\s+$/g, "")
-              : "";
-          const scope = scopeText ? scopeText.split(";") : [];
-          const isGlobalScope = !scopeText || scope[0] === "*";
-          const isBookMatched =
-            isGlobalScope || scope[0] === this.$store.getters.readingBook.name;
-          const isBookUrlMatched =
-            isGlobalScope ||
-            scope.length === 1 ||
-            !scope[1] ||
-            scope[1] === this.$store.getters.readingBook.bookUrl;
-          if (!isBookMatched || !isBookUrlMatched) {
-            return;
-          }
-          try {
-            const replacement = rule.replacement || "";
-            if (rule.isRegex) {
-              content = content.replace(
-                new RegExp(rule.pattern, "ig"),
-                replacement
-              );
-            } else {
-              content = content.split(rule.pattern).join(replacement);
-            }
-          } catch (error) {
-            //
-          }
-        });
-      } catch (error) {
-        //
-      }
+      content = applyReplaceRulesToText(
+        content,
+        this.filterRules,
+        this.$store.getters.readingBook
+      );
       content.replace(/\\n+/g, "\n");
       content = this.formatChinese(content);
       return content;

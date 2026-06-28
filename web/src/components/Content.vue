@@ -1,6 +1,10 @@
 <script>
 import { setCache, getCache } from "../plugins/cache";
 import { loadFont } from "../plugins/helper";
+import {
+  applyReplaceRulesToDocument,
+  buildEpubReplaceRulesScript
+} from "../plugins/replace-rule";
 export default {
   name: "Content",
   data() {
@@ -20,7 +24,11 @@ export default {
       iframeStyle: {},
       iframeInited: false,
       iframeSelectionTimer: null,
-      unbindIframeSelection: null
+      unbindIframeSelection: null,
+      iframeMessageReady: false,
+      iframeFilterToken: "",
+      iframeFilterFallbackTimer: null,
+      iframeOriginalTextMap: new WeakMap()
     };
   },
   props: [
@@ -119,10 +127,20 @@ export default {
     if (this.iframeSelectionTimer) {
       clearTimeout(this.iframeSelectionTimer);
     }
+    if (this.iframeFilterFallbackTimer) {
+      clearTimeout(this.iframeFilterFallbackTimer);
+    }
   },
   computed: {
     readingBook() {
       return this.$store.getters.readingBook;
+    },
+    filterRules() {
+      return this.$store.state.filterRules;
+    },
+    replaceRuleContext() {
+      const book = this.readingBook || {};
+      return `${book.name || ""}\n${book.bookUrl || ""}`;
     },
     chapter() {
       return (
@@ -208,10 +226,13 @@ export default {
       }
     },
     content() {
+      this.resetIframeFilterState();
       if (this.isAudio) {
         this.resetAudioPlaybackState();
         this.loadAudioConfig();
         this.$nextTick(() => this.play(true));
+      } else if (this.isEpub) {
+        this.$nextTick(() => this.applyIframeFilter());
       }
     },
     containerStyle() {
@@ -231,7 +252,22 @@ export default {
     },
     isEpub(val) {
       if (val) {
+        this.resetIframeFilterState();
         this.$nextTick(() => this.initIframe());
+      }
+    },
+    filterRules: {
+      handler() {
+        if (this.isEpub) {
+          this.$nextTick(() => this.applyIframeFilter());
+        }
+      },
+      deep: true
+    },
+    replaceRuleContext() {
+      if (this.isEpub) {
+        this.resetIframeFilterState();
+        this.$nextTick(() => this.applyIframeFilter());
       }
     },
     currentCustomFontFamily() {
@@ -498,7 +534,7 @@ export default {
           ref="iframe"
           style={this.iframeStyle}
           src={this.$store.getters.apiRoot + this.content}
-          onLoad={this.bindIframeSelectionEvents}
+          onLoad={this.handleIframeLoad}
         ></iframe>
       );
     },
@@ -519,15 +555,18 @@ export default {
           } catch (error) {
             return;
           }
+          this.iframeMessageReady = true;
           if (message.event === "inited") {
             this.iframeStyle = {};
             this.bindIframeSelectionEvents();
             // 设置iframe样式
             this.setIframeStyle();
+            this.applyIframeFilter();
             // 同步iframe高度
             this.syncIframeHeight();
           } else if (message.event === "load") {
             this.bindIframeSelectionEvents();
+            this.applyIframeFilter();
             setTimeout(() => {
               this.$emit("iframeLoad");
               this.$emit("epubLocationChange", message.data);
@@ -550,6 +589,15 @@ export default {
             if (selection) {
               this.$emit("epubSelection", selection);
             }
+          } else if (message.event === "replaceRuleApplied") {
+            if (
+              message.data &&
+              message.data.token &&
+              message.data.token === this.iframeFilterToken
+            ) {
+              this.clearIframeFilterFallback();
+            }
+            this.$emit("contentChange");
           } else if (message.event === "previewImageList") {
             this.$store.commit("setPreviewImageIndex", message.data.imageIndex);
             this.$store.commit("setPreviewImgList", message.data.imageList);
@@ -559,6 +607,92 @@ export default {
           // }
         }
       });
+    },
+    resetIframeFilterState() {
+      this.iframeOriginalTextMap = new WeakMap();
+      this.iframeMessageReady = false;
+      this.iframeFilterToken = "";
+      this.clearIframeFilterFallback();
+    },
+    clearIframeFilterFallback() {
+      if (this.iframeFilterFallbackTimer) {
+        clearTimeout(this.iframeFilterFallbackTimer);
+        this.iframeFilterFallbackTimer = null;
+      }
+    },
+    applyIframeFilter() {
+      if (!this.isEpub || !this.$refs.iframe || !this.iframeMessageReady) {
+        return;
+      }
+      this.clearIframeFilterFallback();
+      const token = `${new Date().getTime()}-${Math.random()}`;
+      this.iframeFilterToken = token;
+      this.sendToIframe("execute", {
+        script: buildEpubReplaceRulesScript(
+          this.filterRules,
+          this.readingBook,
+          token
+        )
+      });
+      this.iframeFilterFallbackTimer = setTimeout(() => {
+        this.iframeFilterFallbackTimer = null;
+        if (this.iframeFilterToken !== token) {
+          return;
+        }
+        this.applyIframeFilterFromParent(token);
+      }, 200);
+    },
+    applyIframeFilterFromParent(token) {
+      let iframeWindow;
+      let iframeDocument;
+      try {
+        iframeWindow = this.$refs.iframe && this.$refs.iframe.contentWindow;
+        if (
+          token &&
+          iframeWindow &&
+          iframeWindow.reader_replace_rule_token === token
+        ) {
+          return;
+        }
+        iframeDocument =
+          this.$refs.iframe &&
+          (this.$refs.iframe.contentDocument ||
+            (iframeWindow && iframeWindow.document));
+      } catch (error) {
+        return;
+      }
+      if (!iframeDocument) {
+        return;
+      }
+      applyReplaceRulesToDocument(
+        iframeDocument,
+        this.filterRules,
+        this.readingBook,
+        this.iframeOriginalTextMap
+      );
+      this.updateIframeHeightFromDocument(iframeDocument);
+      if (this.iframeMessageReady) {
+        this.syncIframeHeight();
+      }
+    },
+    updateIframeHeightFromDocument(iframeDocument) {
+      const root = iframeDocument.documentElement || iframeDocument.body;
+      if (!root) {
+        return;
+      }
+      this.iframeStyle = {
+        ...this.iframeStyle,
+        height: Math.max(root.scrollHeight, this.windowSize.height * 0.8) + "px"
+      };
+      this.$emit("contentChange");
+    },
+    handleIframeLoad() {
+      this.bindIframeSelectionEvents();
+      setTimeout(() => {
+        if (!this.iframeMessageReady && this.isEpub) {
+          this.applyIframeFilterFromParent();
+        }
+      }, 250);
     },
     bindIframeSelectionEvents() {
       if (!this.$refs.iframe) {
