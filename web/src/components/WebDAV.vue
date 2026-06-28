@@ -52,13 +52,23 @@
           :formatter="formatTableField"
           width="120px"
         ></el-table-column>
-        <el-table-column label="操作" width="100px">
+        <el-table-column label="操作" width="140px">
           <template slot-scope="scope">
             <el-button
               type="text"
               @click="restoreFromWebdav(scope.row)"
-              v-if="!scope.row.isDirectory && scope.row.name.endsWith('.zip')"
+              v-if="
+                !scope.row.isDirectory &&
+                  scope.row.name.endsWith('.zip') &&
+                  !isReaderBackup(scope.row)
+              "
               >还原</el-button
+            >
+            <el-button
+              type="text"
+              @click="restoreReaderDataFromWebdav(scope.row)"
+              v-if="isReaderBackup(scope.row)"
+              >恢复Reader</el-button
             >
             <el-button
               type="text"
@@ -106,6 +116,14 @@
       >
         上传文件
       </el-button>
+      <el-button
+        type="primary"
+        size="medium"
+        class="float-left"
+        @click="backupReaderDataToWebdav"
+      >
+        备份Reader数据
+      </el-button>
       <input
         ref="fileRef"
         type="file"
@@ -122,6 +140,7 @@
 <script>
 import { mapGetters } from "vuex";
 import Axios from "../plugins/axios";
+import { setCache } from "../plugins/cache";
 import { formatSize } from "../plugins/helper";
 
 export default {
@@ -166,6 +185,15 @@ export default {
       const path = row.path.toLowerCase();
       return (
         path.endsWith(".txt") || path.endsWith(".epub") || path.endsWith(".umd")
+      );
+    },
+    isReaderBackup(row) {
+      return (
+        row &&
+        !row.isDirectory &&
+        row.name &&
+        row.name.indexOf("reader-backup-") === 0 &&
+        row.name.endsWith(".zip")
       );
     },
     cancel() {
@@ -262,7 +290,7 @@ export default {
     },
     async restoreFromWebdav(row) {
       const res = await this.$confirm(
-        `确认要从该压缩文件恢复书源、书架、分组和RSS订阅数据吗?`,
+        `确认要从该压缩文件恢复书源、书源订阅、书架、分组、RSS、替换规则、书签、用户配置和阅读配置吗?`,
         "提示",
         {
           confirmButtonText: "确定",
@@ -278,16 +306,128 @@ export default {
       Axios.post(this.api + "/restoreFromWebdav", {
         path: row.path
       }).then(
-        res => {
+        async res => {
           if (res.data.isSuccess) {
+            await this.refreshAfterReaderDataRestore();
             this.$message.success("恢复成功");
-            this.init(true);
           }
         },
         error => {
           this.$message.error("恢复失败 " + (error && error.toString()));
         }
       );
+    },
+    async backupReaderDataToWebdav() {
+      const res = await this.$confirm(
+        "确认要将当前书源、书源订阅、书架、分组、RSS、替换规则、书签、用户配置和阅读配置备份到 WebDAV 吗?",
+        "提示",
+        {
+          confirmButtonText: "确定",
+          cancelButtonText: "取消",
+          type: "warning"
+        }
+      ).catch(() => {
+        return false;
+      });
+      if (!res) {
+        return;
+      }
+      Axios.post(this.api + "/backupReaderDataToWebdav").then(
+        res => {
+          if (res.data.isSuccess) {
+            const data = res.data.data || {};
+            this.$message.success("Reader数据备份成功");
+            this.showWebdavFile(
+              data.path
+                ? data.path.replace(/\/[^/]+$/, "") || "/"
+                : this.currentPath
+            );
+          }
+        },
+        error => {
+          this.$message.error(
+            "Reader数据备份失败 " + (error && error.toString())
+          );
+        }
+      );
+    },
+    async restoreReaderDataFromWebdav(row) {
+      const res = await this.$confirm(
+        "确认要用该Reader数据包恢复当前用户的书源、书源订阅、书架、分组、RSS、替换规则、书签、用户配置和阅读配置吗?",
+        "提示",
+        {
+          confirmButtonText: "确定",
+          cancelButtonText: "取消",
+          type: "warning"
+        }
+      ).catch(() => {
+        return false;
+      });
+      if (!res) {
+        return;
+      }
+      Axios.post(this.api + "/restoreReaderDataFromWebdav", {
+        path: row.path
+      }).then(
+        async res => {
+          if (res.data.isSuccess) {
+            await this.refreshAfterReaderDataRestore();
+            this.$message.success("Reader数据恢复成功");
+          }
+        },
+        error => {
+          this.$message.error(
+            "Reader数据恢复失败 " + (error && error.toString())
+          );
+        }
+      );
+    },
+    async refreshAfterReaderDataRestore() {
+      const app = this.$root.$children[0];
+      if (app && app.init) {
+        await app.init(true);
+      }
+      await Promise.all([
+        this.applyRestoredUserConfig(),
+        this.applyRestoredReadConfig()
+      ]);
+    },
+    async applyRestoredUserConfig() {
+      if (!window.localStorage) {
+        return;
+      }
+      const res = await Axios.get(this.api + "/getUserConfig", {
+        silent: true
+      }).catch(() => null);
+      if (!res || !res.data || !res.data.isSuccess) {
+        return;
+      }
+      const userConfig = res.data.data || {};
+      for (const key in userConfig) {
+        if (Object.hasOwnProperty.call(userConfig, key)) {
+          setCache(key, userConfig[key]);
+        }
+      }
+      this.$store.dispatch("syncFromLocalStorage");
+    },
+    async applyRestoredReadConfig() {
+      const res = await Axios.get(this.api + "/getReadConfig", {
+        silent: true
+      }).catch(() => null);
+      if (!res || !res.data || !res.data.isSuccess) {
+        return;
+      }
+      const readConfig = res.data.data || {};
+      const app = this.$root.$children[0];
+      if (
+        readConfig.readConfigAutoSync === true &&
+        app &&
+        app.applyRemoteReadConfig
+      ) {
+        app.applyRemoteReadConfig(readConfig);
+      } else if (readConfig.readConfigAutoSync === false) {
+        this.$store.commit("setReadConfigAutoSync", false);
+      }
     },
     downloadFromWebdav(row) {
       window.open(

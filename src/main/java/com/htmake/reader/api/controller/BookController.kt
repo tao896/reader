@@ -99,6 +99,140 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
         webClient = SpringContextUtils.getBean("webClient", WebClient::class.java)
     }
 
+    private val searchResultNormalizeRegex = Regex("""[\s\p{Punct}《》〈〉「」『』【】（）“”‘’·—–…，。！？；：、]+""")
+    private val unknownSearchAuthors = setOf("", "未知", "佚名", "匿名", "无", "暂无", "null", "unknown", "作者")
+
+    private fun normalizeSearchResultText(text: String?): String {
+        return searchResultNormalizeRegex.replace(text?.lowercase() ?: "", "")
+    }
+
+    private fun getSearchAuthorKey(author: String?): String {
+        val authorKey = normalizeSearchResultText(author)
+        return if (unknownSearchAuthors.contains(authorKey)) "" else authorKey
+    }
+
+    private fun getSearchBookIdentityKey(book: SearchBook): String {
+        val nameKey = normalizeSearchResultText(book.name)
+        val authorKey = getSearchAuthorKey(book.author)
+        val originKey = normalizeSearchResultText(book.origin)
+        val urlKey = normalizeSearchResultText(book.bookUrl)
+        if (nameKey.isNotEmpty() && authorKey.isNotEmpty()) {
+            return "book:$nameKey:$authorKey"
+        }
+        val latestChapterKey = normalizeSearchResultText(book.latestChapterTitle)
+        if (nameKey.isNotEmpty() && latestChapterKey.length >= 3) {
+            return "weak:$nameKey:$latestChapterKey"
+        }
+        if (originKey.isNotEmpty() && urlKey.isNotEmpty()) {
+            return "url:$originKey:$urlKey"
+        }
+        if (originKey.isNotEmpty() && nameKey.isNotEmpty()) {
+            return "source-name:$originKey:$nameKey"
+        }
+        return "raw:${book.origin}:${book.bookUrl}:${book.name}:${book.author}"
+    }
+
+    private fun getSearchBookCompletenessScore(book: SearchBook): Int {
+        var score = 0
+        if (book.bookUrl.isNotBlank()) score += 10
+        if (book.origin.isNotBlank()) score += 5
+        if (getSearchAuthorKey(book.author).isNotEmpty()) score += 80
+        if (!book.latestChapterTitle.isNullOrBlank()) score += 40
+        if (!book.coverUrl.isNullOrBlank()) score += 25
+        if (!book.intro.isNullOrBlank()) score += 20
+        if (!book.wordCount.isNullOrBlank()) score += 20
+        if (book.tocUrl.isNotBlank()) score += 10
+        return score
+    }
+
+    private fun getSearchBookScore(book: SearchBook, keyword: String): Int {
+        val keywordKey = normalizeSearchResultText(keyword)
+        val nameKey = normalizeSearchResultText(book.name)
+        val authorKey = getSearchAuthorKey(book.author)
+        var score = getSearchBookCompletenessScore(book)
+        if (keywordKey.isNotEmpty()) {
+            score += when {
+                nameKey == keywordKey -> 1000
+                nameKey.startsWith(keywordKey) -> 800
+                nameKey.contains(keywordKey) -> 650
+                keywordKey.contains(nameKey) && nameKey.length >= 2 -> 300
+                else -> 0
+            }
+            score += when {
+                authorKey == keywordKey -> 500
+                authorKey.contains(keywordKey) -> 350
+                else -> 0
+            }
+            val latestChapterKey = normalizeSearchResultText(book.latestChapterTitle)
+            if (latestChapterKey.contains(keywordKey)) score += 120
+            val introKey = normalizeSearchResultText(book.intro).take(2000)
+            if (introKey.contains(keywordKey)) score += 60
+            if (nameKey.isNotEmpty()) {
+                score += Math.max(0, 80 - Math.abs(nameKey.length - keywordKey.length) * 4)
+            }
+        }
+        score += Math.max(0, Math.min(book.originOrder, 200))
+        if (book.time > 0) {
+            score += Math.max(0, 80 - Math.min((book.time / 250).toInt(), 80))
+        }
+        return score
+    }
+
+    private fun isBetterSearchBook(candidate: SearchBook, current: SearchBook, keyword: String): Boolean {
+        val candidateScore = getSearchBookScore(candidate, keyword)
+        val currentScore = getSearchBookScore(current, keyword)
+        if (candidateScore != currentScore) {
+            return candidateScore > currentScore
+        }
+        val candidateCompleteness = getSearchBookCompletenessScore(candidate)
+        val currentCompleteness = getSearchBookCompletenessScore(current)
+        if (candidateCompleteness != currentCompleteness) {
+            return candidateCompleteness > currentCompleteness
+        }
+        if (candidate.originOrder != current.originOrder) {
+            return candidate.originOrder > current.originOrder
+        }
+        val candidateTime = if (candidate.time > 0) candidate.time else Long.MAX_VALUE
+        val currentTime = if (current.time > 0) current.time else Long.MAX_VALUE
+        if (candidateTime != currentTime) {
+            return candidateTime < currentTime
+        }
+        return candidate.bookUrl.length < current.bookUrl.length
+    }
+
+    private fun mergeSearchBookResult(resultMap: MutableMap<String, SearchBook>, book: SearchBook, keyword: String): Boolean {
+        if (book.name.isBlank() && book.bookUrl.isBlank()) {
+            return false
+        }
+        val bookKey = getSearchBookIdentityKey(book)
+        val current = resultMap[bookKey]
+        if (current == null || isBetterSearchBook(book, current, keyword)) {
+            resultMap[bookKey] = book
+            return true
+        }
+        return false
+    }
+
+    private fun smartSearchBookList(books: Collection<SearchBook>, keyword: String): ArrayList<SearchBook> {
+        val resultMap = linkedMapOf<String, SearchBook>()
+        books.forEach { book ->
+            mergeSearchBookResult(resultMap, book, keyword)
+        }
+        return ArrayList(resultMap.values.sortedWith { left, right ->
+            val scoreCompare = getSearchBookScore(right, keyword).compareTo(getSearchBookScore(left, keyword))
+            if (scoreCompare != 0) return@sortedWith scoreCompare
+            val orderCompare = right.originOrder.compareTo(left.originOrder)
+            if (orderCompare != 0) return@sortedWith orderCompare
+            val leftTime = if (left.time > 0) left.time else Long.MAX_VALUE
+            val rightTime = if (right.time > 0) right.time else Long.MAX_VALUE
+            val timeCompare = leftTime.compareTo(rightTime)
+            if (timeCompare != 0) return@sortedWith timeCompare
+            val lengthCompare = normalizeSearchResultText(left.name).length.compareTo(normalizeSearchResultText(right.name).length)
+            if (lengthCompare != 0) return@sortedWith lengthCompare
+            left.name.compareTo(right.name)
+        })
+    }
+
     private fun getInvalidBookSourceCache(userNameSpace: String): ACache {
         val cacheDir = File(getWorkDir("storage", "cache", "invalidBookSourceCache", userNameSpace))
         // 缓存 5M 的失效书源信息
@@ -134,6 +268,103 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
         }
 
         return returnData.setData(invalidBookSourceList)
+    }
+
+    suspend fun getBookSourceHealth(context: RoutingContext): ReturnData {
+        val returnData = ReturnData()
+        if (!checkAuth(context)) {
+            return returnData.setData("NEED_LOGIN").setErrorMsg("请登录后使用")
+        }
+        val userNameSpace = getUserNameSpace(context)
+        val invalidBookSourceCache = getInvalidBookSourceCache(userNameSpace)
+        val cacheDir = File(getWorkDir("storage", "cache", "invalidBookSourceCache", userNameSpace))
+        val invalidInfoMap = mutableMapOf<String, Map<String, Any>>()
+        cacheDir.listFiles()?.forEach { file ->
+            invalidBookSourceCache.getByHashCode(file.name)?.toMap()?.let { info ->
+                val sourceUrl = info["sourceUrl"]?.toString() ?: ""
+                if (sourceUrl.isNotEmpty()) {
+                    invalidInfoMap[sourceUrl] = info
+                }
+            }
+        }
+
+        val shelfSourceMap = mutableMapOf<String, MutableList<String>>()
+        asJsonArray(getUserStorage(userNameSpace, "bookshelf"))?.forEach { item ->
+            val book = (item as? JsonObject)?.mapTo(Book::class.java) ?: return@forEach
+            if (book.origin.isNotEmpty()) {
+                shelfSourceMap.getOrPut(book.origin) { mutableListOf() }.add(book.name)
+            }
+        }
+
+        val sourceList = mutableListOf<Map<String, Any>>()
+        val bookSourceList = BookSourceController(coroutineContext).getUserBookSourceJson(userNameSpace) ?: JsonArray()
+        for (i in 0 until bookSourceList.size()) {
+            val bookSource = bookSourceList.getJsonObject(i).mapTo(BookSource::class.java)
+            val invalidInfo = invalidInfoMap[bookSource.bookSourceUrl]
+            val shelfBooks = shelfSourceMap[bookSource.bookSourceUrl] ?: mutableListOf()
+            val status = if (!bookSource.enabled) {
+                "disabled"
+            } else if (invalidInfo != null) {
+                "invalid"
+            } else {
+                "healthy"
+            }
+            sourceList.add(mapOf(
+                "bookSourceName" to bookSource.bookSourceName,
+                "bookSourceUrl" to bookSource.bookSourceUrl,
+                "bookSourceGroup" to (bookSource.bookSourceGroup ?: ""),
+                "bookSourceType" to bookSource.bookSourceType,
+                "isUnknown" to false,
+                "enabled" to bookSource.enabled,
+                "enabledExplore" to bookSource.enabledExplore,
+                "status" to status,
+                "statusName" to when (status) {
+                    "disabled" -> "已禁用"
+                    "invalid" -> "异常"
+                    else -> "正常"
+                },
+                "errorMsg" to (invalidInfo?.get("error")?.toString() ?: ""),
+                "lastErrorTime" to (invalidInfo?.get("time") ?: 0),
+                "shelfBookCount" to shelfBooks.size,
+                "shelfBooks" to shelfBooks,
+                "hasSearchRule" to !bookSource.searchUrl.isNullOrBlank(),
+                "hasContentRule" to !bookSource.getContentRule().content.isNullOrBlank(),
+                "respondTime" to bookSource.respondTime
+            ))
+        }
+
+        invalidInfoMap.forEach { (sourceUrl, info) ->
+            if (sourceList.none { it["bookSourceUrl"] == sourceUrl }) {
+                sourceList.add(mapOf(
+                    "bookSourceName" to "未知书源",
+                    "bookSourceUrl" to sourceUrl,
+                    "bookSourceGroup" to "",
+                    "bookSourceType" to 0,
+                    "isUnknown" to true,
+                    "enabled" to false,
+                    "enabledExplore" to false,
+                    "status" to "invalid",
+                    "statusName" to "异常",
+                    "errorMsg" to (info["error"]?.toString() ?: ""),
+                    "lastErrorTime" to (info["time"] ?: 0),
+                    "shelfBookCount" to 0,
+                    "shelfBooks" to listOf<String>(),
+                    "hasSearchRule" to false,
+                    "hasContentRule" to false,
+                    "respondTime" to 0
+                ))
+            }
+        }
+
+        val summary = mapOf(
+            "total" to sourceList.size,
+            "healthy" to sourceList.count { it["status"] == "healthy" },
+            "invalid" to sourceList.count { it["status"] == "invalid" },
+            "disabled" to sourceList.count { it["status"] == "disabled" },
+            "used" to sourceList.count { (it["shelfBookCount"] as? Int ?: 0) > 0 },
+            "checkedAt" to System.currentTimeMillis()
+        )
+        return returnData.setData(mapOf("summary" to summary, "list" to sourceList))
     }
 
     suspend fun getBookInfo(context: RoutingContext): ReturnData {
@@ -688,7 +919,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
         }
         logger.info { "searchBook" }
         var result = WebBook(bookSource, appConfig.debugLog).searchBook(key, page)
-        return returnData.setData(result)
+        return returnData.setData(smartSearchBookList(result, key))
     }
 
     suspend fun searchBookMulti(context: RoutingContext): ReturnData {
@@ -736,8 +967,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
             logger.info("客户端已断开链接，停止 searchBookMulti")
             isEnd = true
         }
-        var resultList = arrayListOf<SearchBook>()
-        var resultMap = mutableMapOf<String, Int>()
+        val resultMap = linkedMapOf<String, SearchBook>()
         val book = Book()
         book.name = key
         limitConcurrent(concurrentCount, lastIndex + 1, userBookSourceList.size, {it->
@@ -749,23 +979,18 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
             list.forEach {
                 val bookList = it as? Collection<SearchBook>
                 bookList?.forEach { book ->
-                    // 按照 书名 + 作者名 过滤
-                    val bookKey = book.name + '_' + book.author
-                    if (!resultMap.containsKey(bookKey)) {
-                        resultList.add(book)
-                        resultMap.put(bookKey, 1)
-                    }
+                    mergeSearchBookResult(resultMap, book, key)
                 }
             }
-            logger.info("Loog: {} resultList.size: {}", loopCount, resultList.size)
+            logger.info("Loog: {} resultList.size: {}", loopCount, resultMap.size)
             if (isEnd || loopCount >= concurrentLoopCount) {
                 // 超过最大轮次，终止执行
                 false
             } else {
-                resultList.size < searchSize
+                resultMap.size < searchSize
             }
         }
-        return returnData.setData(mapOf("lastIndex" to lastIndex, "list" to resultList))
+        return returnData.setData(mapOf("lastIndex" to lastIndex, "list" to smartSearchBookList(resultMap.values, key)))
     }
 
     suspend fun searchBookMultiSSE(context: RoutingContext) {
@@ -827,8 +1052,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
             logger.info("客户端已断开链接，停止 searchBookMultiSSE")
             isEnd = true
         }
-        var resultList = arrayListOf<SearchBook>()
-        var resultMap = mutableMapOf<String, Int>()
+        val resultMap = linkedMapOf<String, SearchBook>()
         val book = Book()
         book.name = key
         limitConcurrent(concurrentCount, lastIndex + 1, userBookSourceList.size, {it->
@@ -841,24 +1065,20 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
             list.forEach {
                 val bookList = it as? Collection<SearchBook>
                 bookList?.forEach { book ->
-                    // 按照 书名 + 作者名 过滤
-                    val bookKey = book.name + '_' + book.author
-                    if (!resultMap.containsKey(bookKey)) {
-                        resultList.add(book)
+                    if (mergeSearchBookResult(resultMap, book, key)) {
                         loopResult.add(book)
-                        resultMap.put(bookKey, 1)
                     }
                 }
             }
             // 返回本轮数据
-            response.write("data: " + jsonEncode(mapOf("lastIndex" to lastIndex, "data" to loopResult), false) + "\n\n")
-            logger.info("Loog: {} resultList.size: {}", loopCount, resultList.size)
+            response.write("data: " + jsonEncode(mapOf("lastIndex" to lastIndex, "data" to smartSearchBookList(loopResult, key)), false) + "\n\n")
+            logger.info("Loog: {} resultList.size: {}", loopCount, resultMap.size)
 
             if (isEnd || loopCount >= concurrentLoopCount) {
                 // 超过最大轮次，终止执行
                 false
             } else {
-                resultList.size < searchSize
+                resultMap.size < searchSize
             }
         }
         response.write("event: end\n")
@@ -2170,6 +2390,13 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
                     userBookSourceFile.deleteRecursively()
                     bookSourceFile.renameTo(userBookSourceFile)
                 }
+                // 同步 书源订阅
+                val bookSourceSubscriptionsFile = File(descDir + File.separator + "bookSourceSubscriptions.json")
+                if (bookSourceSubscriptionsFile.exists()) {
+                    val userBookSourceSubscriptionsFile = File(getWorkDir("storage", "data", userNameSpace, "bookSourceSubscriptions.json"))
+                    userBookSourceSubscriptionsFile.deleteRecursively()
+                    bookSourceSubscriptionsFile.renameTo(userBookSourceSubscriptionsFile)
+                }
                 // 同步 书架
                 val bookshelfFile = File(descDir + File.separator + "bookshelf.json")
                 if (bookshelfFile.exists()) {
@@ -2204,6 +2431,20 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
                     val userBookmarkFile = File(getWorkDir("storage", "data", userNameSpace, "bookmark.json"))
                     userBookmarkFile.deleteRecursively()
                     bookmarkFile.renameTo(userBookmarkFile)
+                }
+                // 同步 阅读配置
+                val readConfigFile = File(descDir + File.separator + "readConfig.json")
+                if (readConfigFile.exists()) {
+                    val userReadConfigFile = File(getWorkDir("storage", "data", userNameSpace, "readConfig.json"))
+                    userReadConfigFile.deleteRecursively()
+                    readConfigFile.renameTo(userReadConfigFile)
+                }
+                // 同步 用户配置
+                val userConfigFile = File(descDir + File.separator + "userConfig.json")
+                if (userConfigFile.exists()) {
+                    val userUserConfigFile = File(getWorkDir("storage", "data", userNameSpace, "userConfig.json"))
+                    userUserConfigFile.deleteRecursively()
+                    userConfigFile.renameTo(userUserConfigFile)
                 }
                 // 同步阅读进度
                 var bookProgressDir = File(userHome + File.separator + "bookProgress")
@@ -2244,6 +2485,13 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
                     bookSourceFile.deleteRecursively()
                     userBookSourceFile.copyRecursively(bookSourceFile)
                 }
+                // 同步 书源订阅
+                val userBookSourceSubscriptionsFile = File(getWorkDir("storage", "data", userNameSpace, "bookSourceSubscriptions.json"))
+                if (userBookSourceSubscriptionsFile.exists()) {
+                    val bookSourceSubscriptionsFile = File(descDir + File.separator + "bookSourceSubscriptions.json")
+                    bookSourceSubscriptionsFile.deleteRecursively()
+                    userBookSourceSubscriptionsFile.copyRecursively(bookSourceSubscriptionsFile)
+                }
                 // 同步 书架
                 val userBookshelfFile = File(getWorkDir("storage", "data", userNameSpace, "bookshelf.json"))
                 if (userBookshelfFile.exists()) {
@@ -2256,28 +2504,42 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
                 if (userBookGroupFile.exists()) {
                     val bookGroupFile = File(descDir + File.separator + "bookGroup.json")
                     bookGroupFile.deleteRecursively()
-                    userBookGroupFile.renameTo(bookGroupFile)
+                    userBookGroupFile.copyRecursively(bookGroupFile)
                 }
                 // 同步 RSS订阅
                 val userRssSourcesFile = File(getWorkDir("storage", "data", userNameSpace, "rssSources.json"))
                 if (userRssSourcesFile.exists()) {
                     val rssSourcesFile = File(descDir + File.separator + "rssSources.json")
                     rssSourcesFile.deleteRecursively()
-                    userRssSourcesFile.renameTo(rssSourcesFile)
+                    userRssSourcesFile.copyRecursively(rssSourcesFile)
                 }
                 // 同步 替换规则
                 val userReplaceRuleFile = File(getWorkDir("storage", "data", userNameSpace, "replaceRule.json"))
                 if (userReplaceRuleFile.exists()) {
                     val replaceRuleFile = File(descDir + File.separator + "replaceRule.json")
                     replaceRuleFile.deleteRecursively()
-                    userReplaceRuleFile.renameTo(replaceRuleFile)
+                    userReplaceRuleFile.copyRecursively(replaceRuleFile)
                 }
                 // 同步 书签
                 val userBookmarkFile = File(getWorkDir("storage", "data", userNameSpace, "bookmark.json"))
                 if (userBookmarkFile.exists()) {
                     val bookmarkFile = File(descDir + File.separator + "bookmark.json")
                     bookmarkFile.deleteRecursively()
-                    userBookmarkFile.renameTo(bookmarkFile)
+                    userBookmarkFile.copyRecursively(bookmarkFile)
+                }
+                // 同步 阅读配置
+                val userReadConfigFile = File(getWorkDir("storage", "data", userNameSpace, "readConfig.json"))
+                if (userReadConfigFile.exists()) {
+                    val readConfigFile = File(descDir + File.separator + "readConfig.json")
+                    readConfigFile.deleteRecursively()
+                    userReadConfigFile.copyRecursively(readConfigFile)
+                }
+                // 同步 用户配置
+                val userConfigFile = File(getWorkDir("storage", "data", userNameSpace, "userConfig.json"))
+                if (userConfigFile.exists()) {
+                    val backupUserConfigFile = File(descDir + File.separator + "userConfig.json")
+                    backupUserConfigFile.deleteRecursively()
+                    userConfigFile.copyRecursively(backupUserConfigFile)
                 }
                 // 压缩
                 val today = SimpleDateFormat("yyyy-MM-dd").format(System.currentTimeMillis())
@@ -2289,6 +2551,123 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
             descDirFile.deleteRecursively()
         }
         return false;
+    }
+
+    private fun readerBackupStorageNames(): List<String> {
+        return listOf(
+            "bookSource",
+            "bookSourceSubscriptions",
+            "bookshelf",
+            "bookGroup",
+            "rssSources",
+            "replaceRule",
+            "bookmark",
+            "userConfig",
+            "readConfig"
+        )
+    }
+
+    suspend fun backupReaderDataToWebdav(userNameSpace: String): Map<String, Any>? {
+        BookSourceController(coroutineContext).getUserBookSourceJson(userNameSpace)
+        val userDataDir = File(getWorkDir("storage", "data", userNameSpace))
+        val descDirFile = File(getWorkDir("storage", "data", userNameSpace, "readerBackupTmp-" + System.currentTimeMillis() + "-" + getRandomString(6)))
+        descDirFile.deleteRecursively()
+        try {
+            descDirFile.mkdirs()
+            val copiedFiles = mutableListOf<String>()
+            readerBackupStorageNames().forEach { storageName ->
+                val sourceFile = File(userDataDir, "$storageName.json")
+                if (sourceFile.exists() && sourceFile.isFile) {
+                    val targetFile = File(descDirFile, "$storageName.json")
+                    sourceFile.copyRecursively(targetFile, true)
+                    copiedFiles.add("$storageName.json")
+                }
+            }
+            if (copiedFiles.isEmpty()) {
+                return null
+            }
+            File(descDirFile, "readerBackupManifest.json").writeText(jsonEncode(mapOf(
+                "type" to "reader-user-data",
+                "version" to 1,
+                "createdAt" to System.currentTimeMillis(),
+                "files" to copiedFiles
+            ), true))
+
+            val backupDir = File(getUserWebdavHome(userNameSpace), "reader-backups")
+            if (!backupDir.exists()) {
+                backupDir.mkdirs()
+            }
+            val fileName = "reader-backup-" + SimpleDateFormat("yyyy-MM-dd-HHmmss-SSS").format(System.currentTimeMillis()) + ".zip"
+            val zipFile = File(backupDir, fileName)
+            if (!descDirFile.zip(zipFile.toString())) {
+                return null
+            }
+            return mapOf(
+                "name" to fileName,
+                "path" to "/reader-backups/$fileName",
+                "size" to zipFile.length(),
+                "fileCount" to copiedFiles.size,
+                "files" to copiedFiles
+            )
+        } catch(e: Exception) {
+            e.printStackTrace()
+        } finally {
+            descDirFile.deleteRecursively()
+        }
+        return null
+    }
+
+    suspend fun restoreReaderDataFromWebdav(zipFilePath: String, userNameSpace: String): Map<String, Any>? {
+        val zipFile = File(zipFilePath)
+        if (!zipFile.exists() || !zipFile.isFile) {
+            return null
+        }
+        val descDirFile = File(getWorkDir("storage", "data", userNameSpace, "readerRestoreTmp-" + System.currentTimeMillis() + "-" + getRandomString(6)))
+        descDirFile.deleteRecursively()
+        try {
+            if (!zipFile.unzip(descDirFile.toString())) {
+                return null
+            }
+            val manifestFile = File(descDirFile, "readerBackupManifest.json")
+            if (!manifestFile.exists()) {
+                return null
+            }
+            val manifest = asJsonObject(manifestFile.readText()) ?: return null
+            if (manifest.getString("type") != "reader-user-data") {
+                return null
+            }
+            val manifestFiles = manifest.getJsonArray("files")?.map { it.toString() }?.toSet() ?: emptySet()
+            val userDataDir = File(getWorkDir("storage", "data", userNameSpace))
+            if (!userDataDir.exists()) {
+                userDataDir.mkdirs()
+            }
+            val restoredFiles = mutableListOf<String>()
+            readerBackupStorageNames().forEach { storageName ->
+                val fileName = "$storageName.json"
+                if (!manifestFiles.contains(fileName)) {
+                    return@forEach
+                }
+                val sourceFile = File(descDirFile, fileName)
+                if (sourceFile.exists() && sourceFile.isFile) {
+                    val targetFile = File(userDataDir, fileName)
+                    targetFile.deleteRecursively()
+                    sourceFile.copyRecursively(targetFile, true)
+                    restoredFiles.add(fileName)
+                }
+            }
+            if (restoredFiles.isEmpty()) {
+                return null
+            }
+            return mapOf(
+                "restoredCount" to restoredFiles.size,
+                "files" to restoredFiles
+            )
+        } catch(e: Exception) {
+            e.printStackTrace()
+        } finally {
+            descDirFile.deleteRecursively()
+        }
+        return null
     }
 
     suspend fun getLastBackFileFromWebdav(userNameSpace: String): String? {

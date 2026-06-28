@@ -66,14 +66,15 @@ export const request = async ({
     ...options
   };
   const response = await service(query).catch(e => {
-    if (params.bookSourceUrl && store.state.failureIncludeTimeout) {
+    const failureBookSourceUrl = params.bookSourceUrl || data.bookSourceUrl;
+    if (failureBookSourceUrl && store.state.failureIncludeTimeout) {
       // 判断是否失效书源
       const errorMsg = e.toString();
       window.errorMsgList = window.errorMsgList || [];
       window.errorMsgList.push(errorMsg);
       if (errorMsg.indexOf("timeout") >= 0) {
         store.commit("addFailureBookSource", {
-          bookSourceUrl: params.bookSourceUrl,
+          bookSourceUrl: failureBookSourceUrl,
           errorMsg
         });
       }
@@ -120,8 +121,9 @@ export const request = async ({
           });
         }
         break;
-      default:
-        if (params.bookSourceUrl) {
+      default: {
+        const failureBookSourceUrl = params.bookSourceUrl || data.bookSourceUrl;
+        if (failureBookSourceUrl) {
           // 判断是否失效书源
           if (errorMsg) {
             window.errorMsgList = window.errorMsgList || [];
@@ -129,7 +131,7 @@ export const request = async ({
             for (let index = 0; index < errorTypeList.length; index++) {
               if (errorMsg.indexOf(errorTypeList[index]) >= 0) {
                 store.commit("addFailureBookSource", {
-                  bookSourceUrl: params.bookSourceUrl,
+                  bookSourceUrl: failureBookSourceUrl,
                   errorMsg
                 });
                 break;
@@ -141,6 +143,7 @@ export const request = async ({
           errorMsg && Message.error({ message: errorMsg, duration: 2000 });
         }
         break;
+      }
     }
   } else {
     alert && errorMsg && Message.success({ message: errorMsg, duration: 1500 });

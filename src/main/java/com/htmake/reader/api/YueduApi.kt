@@ -174,6 +174,8 @@ class YueduApi : RestVerticle() {
 
         // 失效书源
         router.post("/reader3/getInvalidBookSources").coroutineHandler { bookController.getInvalidBookSources(it) }
+        router.get("/reader3/getBookSourceHealth").coroutineHandler { bookController.getBookSourceHealth(it) }
+        router.post("/reader3/getBookSourceHealth").coroutineHandler { bookController.getBookSourceHealth(it) }
 
         // 探索
         router.post("/reader3/exploreBook").coroutineHandler { bookController.exploreBook(it) }
@@ -328,6 +330,8 @@ class YueduApi : RestVerticle() {
 
         // 备份到webdav
         router.post("/reader3/backupToWebdav").coroutineHandler { webdavController.backupToWebdav(it) }
+        router.post("/reader3/backupReaderDataToWebdav").coroutineHandler { webdavController.backupReaderDataToWebdav(it) }
+        router.post("/reader3/restoreReaderDataFromWebdav").coroutineHandler { webdavController.restoreReaderDataFromWebdav(it) }
 
 
         /** rss模块 */

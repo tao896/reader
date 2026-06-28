@@ -92,7 +92,7 @@
                     <button @click="showBookSourceSubscriptionDialog">
                       书源订阅
                     </button>
-                    <button @click="showFailureBookSource()">失效书源</button>
+                    <button @click="showFailureBookSource()">健康中心</button>
                     <button @click="debugBookSource()">调试书源</button>
                   </div>
                 </div>
@@ -405,7 +405,7 @@
                 class="setting-btn"
                 @click="showFailureBookSource()"
               >
-                失效书源
+                健康中心
               </el-tag>
               <el-tag
                 type="info"
@@ -1252,7 +1252,7 @@
     >
       <div class="custom-dialog-title" slot="title">
         <span class="el-dialog__title"
-          >{{ isShowFailureBookSource ? "失效书源管理" : "书源管理" }}
+          >{{ isShowFailureBookSource ? "书源健康中心" : "书源管理" }}
           <span
             v-if="!isShowFailureBookSource"
             class="float-right span-btn"
@@ -1304,6 +1304,13 @@
             size="small"
           >
           </el-input-number>
+          <span class="health-summary" v-if="bookSourceHealthSummary">
+            总数 {{ bookSourceHealthSummary.total || 0 }} / 正常
+            {{ bookSourceHealthSummary.healthy || 0 }} / 异常
+            {{ bookSourceHealthSummary.invalid || 0 }} / 禁用
+            {{ bookSourceHealthSummary.disabled || 0 }} / 书架使用
+            {{ bookSourceHealthSummary.used || 0 }}
+          </span>
         </div>
         <div class="source-group-wrapper">
           <el-tag
@@ -1354,9 +1361,21 @@
             </template>
           </el-table-column>
           <el-table-column
+            property="statusName"
+            label="状态"
+            min-width="80"
+            v-if="isShowFailureBookSource"
+          ></el-table-column>
+          <el-table-column
             property="errorMsg"
             label="错误信息"
             min-width="120"
+            v-if="isShowFailureBookSource"
+          ></el-table-column>
+          <el-table-column
+            property="shelfBookCount"
+            label="使用数"
+            min-width="80"
             v-if="isShowFailureBookSource"
           ></el-table-column>
           <el-table-column label="书架书籍" min-width="120">
@@ -1541,7 +1560,6 @@ import Explore from "../components/Explore.vue";
 import LocalStore from "../components/LocalStore.vue";
 import WebDAV from "../components/WebDAV.vue";
 import Axios from "../plugins/axios";
-import { errorTypeList } from "../plugins/config";
 import { setCache, getCache } from "../plugins/cache";
 import eventBus from "../plugins/eventBus";
 import { formatSize, LimitResquest } from "../plugins/helper";
@@ -1596,6 +1614,8 @@ export default {
       showBookSourceManageDialog: false,
       manageSourceSelection: [],
       isShowFailureBookSource: false,
+      bookSourceHealthList: [],
+      bookSourceHealthSummary: null,
       checkBookSourceTip: "",
       isCheckingBookSource: false,
 
@@ -1824,6 +1844,175 @@ export default {
     loadBookSource(refresh) {
       return this.$root.$children[0].loadBookSource(refresh);
     },
+    normalizeSearchResultText(text) {
+      return (text || "")
+        .toString()
+        .toLowerCase()
+        .replace(
+          /[\s!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~《》〈〉「」『』【】（）“”‘’·—–…，。！？；：、]/g,
+          ""
+        );
+    },
+    getSearchResultAuthorKey(author) {
+      const authorKey = this.normalizeSearchResultText(author);
+      return [
+        "",
+        "未知",
+        "佚名",
+        "匿名",
+        "无",
+        "暂无",
+        "null",
+        "unknown",
+        "作者"
+      ].indexOf(authorKey) >= 0
+        ? ""
+        : authorKey;
+    },
+    getSearchResultIdentityKey(book) {
+      const nameKey = this.normalizeSearchResultText(book && book.name);
+      const authorKey = this.getSearchResultAuthorKey(book && book.author);
+      const originKey = this.normalizeSearchResultText(book && book.origin);
+      const urlKey = this.normalizeSearchResultText(book && book.bookUrl);
+      if (nameKey && authorKey) {
+        return `book:${nameKey}:${authorKey}`;
+      }
+      const latestChapterKey = this.normalizeSearchResultText(
+        book && book.latestChapterTitle
+      );
+      if (nameKey && latestChapterKey.length >= 3) {
+        return `weak:${nameKey}:${latestChapterKey}`;
+      }
+      if (originKey && urlKey) {
+        return `url:${originKey}:${urlKey}`;
+      }
+      if (originKey && nameKey) {
+        return `source-name:${originKey}:${nameKey}`;
+      }
+      return `raw:${(book && book.origin) || ""}:${(book && book.bookUrl) ||
+        ""}:${(book && book.name) || ""}:${(book && book.author) || ""}`;
+    },
+    getSearchResultCompletenessScore(book) {
+      let score = 0;
+      if (book && book.bookUrl) score += 10;
+      if (book && book.origin) score += 5;
+      if (this.getSearchResultAuthorKey(book && book.author)) score += 80;
+      if (book && book.latestChapterTitle) score += 40;
+      if (book && book.coverUrl) score += 25;
+      if (book && book.intro) score += 20;
+      if (book && book.wordCount) score += 20;
+      if (book && book.tocUrl) score += 10;
+      return score;
+    },
+    getSearchResultScore(book, keyword) {
+      const keywordKey = this.normalizeSearchResultText(keyword || this.search);
+      const nameKey = this.normalizeSearchResultText(book && book.name);
+      const authorKey = this.getSearchResultAuthorKey(book && book.author);
+      let score = this.getSearchResultCompletenessScore(book);
+      if (keywordKey) {
+        if (nameKey === keywordKey) {
+          score += 1000;
+        } else if (nameKey.indexOf(keywordKey) === 0) {
+          score += 800;
+        } else if (nameKey.indexOf(keywordKey) >= 0) {
+          score += 650;
+        } else if (nameKey.length >= 2 && keywordKey.indexOf(nameKey) >= 0) {
+          score += 300;
+        }
+        if (authorKey === keywordKey) {
+          score += 500;
+        } else if (authorKey.indexOf(keywordKey) >= 0) {
+          score += 350;
+        }
+        const latestChapterKey = this.normalizeSearchResultText(
+          book && book.latestChapterTitle
+        );
+        if (latestChapterKey.indexOf(keywordKey) >= 0) score += 120;
+        const introKey = this.normalizeSearchResultText(
+          book && book.intro
+        ).slice(0, 2000);
+        if (introKey.indexOf(keywordKey) >= 0) score += 60;
+        if (nameKey) {
+          score += Math.max(
+            0,
+            80 - Math.abs(nameKey.length - keywordKey.length) * 4
+          );
+        }
+      }
+      score += Math.max(0, Math.min((book && book.originOrder) || 0, 200));
+      if (book && book.time > 0) {
+        score += Math.max(0, 80 - Math.min(Math.floor(book.time / 250), 80));
+      }
+      return score;
+    },
+    isBetterSearchResult(candidate, current, keyword) {
+      const candidateScore = this.getSearchResultScore(candidate, keyword);
+      const currentScore = this.getSearchResultScore(current, keyword);
+      if (candidateScore !== currentScore) {
+        return candidateScore > currentScore;
+      }
+      const candidateCompleteness = this.getSearchResultCompletenessScore(
+        candidate
+      );
+      const currentCompleteness = this.getSearchResultCompletenessScore(
+        current
+      );
+      if (candidateCompleteness !== currentCompleteness) {
+        return candidateCompleteness > currentCompleteness;
+      }
+      if ((candidate.originOrder || 0) !== (current.originOrder || 0)) {
+        return (candidate.originOrder || 0) > (current.originOrder || 0);
+      }
+      const candidateTime =
+        candidate.time > 0 ? candidate.time : Number.MAX_VALUE;
+      const currentTime = current.time > 0 ? current.time : Number.MAX_VALUE;
+      if (candidateTime !== currentTime) {
+        return candidateTime < currentTime;
+      }
+      return (candidate.bookUrl || "").length < (current.bookUrl || "").length;
+    },
+    compareSearchResults(left, right, keyword) {
+      const scoreDiff =
+        this.getSearchResultScore(right, keyword) -
+        this.getSearchResultScore(left, keyword);
+      if (scoreDiff) return scoreDiff;
+      const orderDiff = (right.originOrder || 0) - (left.originOrder || 0);
+      if (orderDiff) return orderDiff;
+      const leftTime = left.time > 0 ? left.time : Number.MAX_VALUE;
+      const rightTime = right.time > 0 ? right.time : Number.MAX_VALUE;
+      if (leftTime !== rightTime) return leftTime - rightTime;
+      const lengthDiff =
+        this.normalizeSearchResultText(left.name).length -
+        this.normalizeSearchResultText(right.name).length;
+      if (lengthDiff) return lengthDiff;
+      return (left.name || "").localeCompare(right.name || "");
+    },
+    mergeSearchResultList(baseList, incomingList, keyword) {
+      const resultMap = {};
+      let changed = false;
+      const mergeOne = (book, markChanged) => {
+        if (!book || (!book.name && !book.bookUrl)) return;
+        const bookKey = this.getSearchResultIdentityKey(book);
+        const current = resultMap[bookKey];
+        if (!current) {
+          resultMap[bookKey] = book;
+          changed = changed || markChanged;
+        } else if (this.isBetterSearchResult(book, current, keyword)) {
+          resultMap[bookKey] = book;
+          changed = changed || markChanged;
+        }
+      };
+      (baseList || []).forEach(book => mergeOne(book, false));
+      (incomingList || []).forEach(book => mergeOne(book, true));
+      return {
+        changed,
+        list: Object.keys(resultMap)
+          .map(key => resultMap[key])
+          .sort((left, right) =>
+            this.compareSearchResults(left, right, keyword || this.search)
+          )
+      };
+    },
     searchBook(page) {
       if (!this.$store.state.connected) {
         this.$message.error("后端未连接");
@@ -1889,15 +2078,13 @@ export default {
               this.searchLastIndex = res.data.data.lastIndex;
               resultList = res.data.data.list;
             }
-            var data = [].concat(this.searchResult);
-            var length = data.length;
-            resultList.forEach(v => {
-              if (!this.searchResultMap[v.bookUrl]) {
-                data.push(v);
-              }
-            });
-            this.searchResult = data;
-            if (data.length === length) {
+            const merged = this.mergeSearchResultList(
+              this.searchResult,
+              resultList,
+              this.search
+            );
+            this.searchResult = merged.list;
+            if (!merged.changed) {
               this.$message.error("没有更多啦");
             }
           }
@@ -1968,6 +2155,7 @@ export default {
         }
       });
       let oldSearchResultLength = this.searchResult.length;
+      let hasSearchResultChange = false;
       this.searchEventSource.addEventListener("end", e => {
         this.loadingMore = false;
         tryClose();
@@ -1978,7 +2166,10 @@ export default {
               this.searchLastIndex = result.lastIndex;
             }
           }
-          if (this.searchResult.length === oldSearchResultLength) {
+          if (
+            !hasSearchResultChange &&
+            this.searchResult.length === oldSearchResultLength
+          ) {
             this.$message.error("没有更多啦");
           }
         } catch (error) {
@@ -1993,13 +2184,13 @@ export default {
               this.searchLastIndex = result.lastIndex;
             }
             if (result.data) {
-              var data = [].concat(this.searchResult);
-              result.data.forEach(v => {
-                if (!this.searchResultMap[v.bookUrl]) {
-                  data.push(v);
-                }
-              });
-              this.searchResult = data;
+              const merged = this.mergeSearchResultList(
+                this.searchResult,
+                result.data,
+                this.search
+              );
+              hasSearchResultChange = hasSearchResultChange || merged.changed;
+              this.searchResult = merged.list;
             }
           }
         } catch (error) {
@@ -2595,6 +2786,9 @@ export default {
       );
     },
     isBookSourceSelectable(bookSource) {
+      if (this.isShowFailureBookSource) {
+        return !bookSource.isUnknown && !(bookSource.shelfBookCount || 0);
+      }
       const res = [];
       (this.$store.state.shelfBooks || []).forEach(v => {
         if (v.origin === bookSource.bookSourceUrl) {
@@ -2604,6 +2798,9 @@ export default {
       return !res.length;
     },
     showSourceBook(bookSource) {
+      if (Array.isArray(bookSource.shelfBooks)) {
+        return bookSource.shelfBooks.join("\n");
+      }
       const res = [];
       (this.$store.state.shelfBooks || []).forEach(v => {
         if (v.origin === bookSource.bookSourceUrl) {
@@ -2617,20 +2814,18 @@ export default {
         this.$message.error("后端未连接");
         return;
       }
-      Axios.post(this.api + "/getInvalidBookSources").then(
+      Axios.post(this.api + "/getBookSourceHealth").then(
         res => {
           if (res.data.isSuccess) {
-            //
-            res.data.data.forEach(v => {
-              this.$store.commit("addFailureBookSource", {
-                bookSourceUrl: v.sourceUrl,
-                errorMsg: v.error
-              });
-            });
+            const data = res.data.data || {};
+            this.bookSourceHealthSummary = data.summary || null;
+            this.bookSourceHealthList = data.list || [];
           }
         },
-        () => {
-          //
+        error => {
+          this.$message.error(
+            "加载书源健康信息失败 " + (error && error.toString())
+          );
         }
       );
     },
@@ -2649,6 +2844,7 @@ export default {
           if (handler.isEnd()) {
             this.isCheckingBookSource = false;
             this.$store.commit("setFailureIncludeTimeout", false);
+            this.getInvalidBookSources();
           }
         }
       );
@@ -2696,6 +2892,9 @@ export default {
             this.manageSourceSelection = [];
             this.$message.success("删除书源成功");
             this.loadBookSource(true);
+            if (this.isShowFailureBookSource) {
+              this.getInvalidBookSources();
+            }
           }
         },
         error => {
@@ -2824,7 +3023,7 @@ export default {
     },
     async backupToWebdav() {
       const res = await this.$confirm(
-        `确认要用当前书源和书架信息覆盖备份文件中的书源、书架、分组和RSS订阅数据吗?`,
+        `确认要用当前Reader数据覆盖阅读App备份文件中的书源、书源订阅、书架、分组、RSS、替换规则、书签、用户配置和阅读配置吗?`,
         "提示",
         {
           confirmButtonText: "确定",
@@ -2909,6 +3108,10 @@ export default {
       }
     },
     showFailureBookSource() {
+      this.showSourceGroup = "";
+      this.bookSourcePagination.page = 1;
+      this.bookSourceHealthSummary = null;
+      this.bookSourceHealthList = [];
       this.getInvalidBookSources();
       this.isShowFailureBookSource = true;
       this.showBookSourceManageDialog = true;
@@ -3541,7 +3744,7 @@ export default {
     },
     searchResultMap() {
       return this.searchResult.reduce((c, v) => {
-        c[v.bookUrl] = v;
+        c[this.getSearchResultIdentityKey(v)] = v;
         return c;
       }, {});
     },
@@ -3617,7 +3820,7 @@ export default {
     },
     bookSourceShowList() {
       return this.isShowFailureBookSource
-        ? this.$store.state.failureBookSource
+        ? this.bookSourceHealthList
         : this.bookSourceList;
     },
     bookSourceGroupList() {
@@ -3654,7 +3857,7 @@ export default {
         groups.add("未分组");
         return Array.from(groups);
       } else {
-        return [].concat(errorTypeList).concat(["timeout"]);
+        return ["异常", "正常", "已禁用", "书架使用", "未使用"];
       }
     },
     bookSourceShowLength() {
@@ -3665,11 +3868,22 @@ export default {
         return this.bookSourceShowList;
       }
       if (this.isShowFailureBookSource) {
-        return this.bookSourceShowList.filter(v =>
-          this.showSourceGroup
-            ? v.errorMsg.indexOf(this.showSourceGroup) >= 0
-            : true
-        );
+        return this.bookSourceShowList.filter(v => {
+          switch (this.showSourceGroup) {
+            case "异常":
+              return v.status === "invalid";
+            case "正常":
+              return v.status === "healthy";
+            case "已禁用":
+              return v.status === "disabled";
+            case "书架使用":
+              return (v.shelfBookCount || 0) > 0;
+            case "未使用":
+              return !(v.shelfBookCount || 0);
+            default:
+              return true;
+          }
+        });
       } else {
         return this.bookSourceShowList.filter(v =>
           this.showSourceGroup === "未分组"

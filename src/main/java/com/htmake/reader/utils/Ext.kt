@@ -5,7 +5,6 @@ import io.vertx.ext.web.client.HttpRequest
 import io.vertx.ext.web.client.WebClient
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.io.File
-import java.io.OutputStream
 import java.io.InputStream
 import org.xml.sax.InputSource
 import java.io.FileOutputStream
@@ -53,37 +52,47 @@ fun File.unzip(descDir: String): Boolean {
         return false
     }
     val buffer = ByteArray(1024)
-    var outputStream: OutputStream? = null
-    var inputStream: InputStream? = null
     try {
-        val zf = ZipFile(this.toString())
-        val entries = zf.entries()
-        while (entries.hasMoreElements()) {
-            val zipEntry: ZipEntry = entries.nextElement() as ZipEntry
-            val zipEntryName: String = zipEntry.name
-
-            val descFilePath: String = descDir + File.separator + zipEntryName
-            if (zipEntry.isDirectory) {
-                createDir(descFilePath)
-            } else {
-                inputStream = zf.getInputStream(zipEntry)
-                val descFile: File = createFile(descFilePath)
-                outputStream = FileOutputStream(descFile)
-
-                var len: Int
-                while (inputStream.read(buffer).also { len = it } > 0) {
-                    outputStream.write(buffer, 0, len)
+        val targetDir = File(descDir).canonicalFile
+        if (!targetDir.exists()) {
+            targetDir.mkdirs()
+        }
+        ZipFile(this.toString()).use { zf ->
+            val entries = zf.entries()
+            while (entries.hasMoreElements()) {
+                val zipEntry: ZipEntry = entries.nextElement() as ZipEntry
+                val descFile = File(targetDir, zipEntry.name).canonicalFile
+                val targetDirPath = targetDir.path + File.separator
+                if (descFile != targetDir && !descFile.path.startsWith(targetDirPath)) {
+                    throw SecurityException("Zip entry outside target dir: ${zipEntry.name}")
                 }
-                inputStream.close()
-                outputStream.close()
+
+                if (zipEntry.isDirectory) {
+                    if (!descFile.exists()) {
+                        descFile.mkdirs()
+                    }
+                } else {
+                    if (descFile == targetDir) {
+                        throw SecurityException("Zip entry cannot overwrite target dir: ${zipEntry.name}")
+                    }
+                    val parentFile = descFile.parentFile
+                    if (parentFile != null && !parentFile.exists()) {
+                        parentFile.mkdirs()
+                    }
+                    zf.getInputStream(zipEntry).use { inputStream ->
+                        FileOutputStream(descFile).use { outputStream ->
+                            var len: Int
+                            while (inputStream.read(buffer).also { len = it } > 0) {
+                                outputStream.write(buffer, 0, len)
+                            }
+                        }
+                    }
+                }
             }
         }
         return true
     } catch(e: Exception) {
         e.printStackTrace()
-    } finally {
-        inputStream?.close()
-        outputStream?.close()
     }
     return false
 }
@@ -215,8 +224,6 @@ fun parseNode(list: NodeList): MutableMap<String, Any> {
     }
     return doc
 }
-
-
 
 
 
