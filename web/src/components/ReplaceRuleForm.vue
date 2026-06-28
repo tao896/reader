@@ -11,21 +11,41 @@
     v-if="$store.getters.isNormalPage"
     :before-close="cancel"
   >
-    <el-form :model="ruleForm">
+    <el-form :model="ruleForm" label-width="80px">
       <el-form-item label="名称">
         <el-input v-model="ruleForm.name"></el-input>
+      </el-form-item>
+      <el-form-item label="类型">
+        <el-radio-group v-model="ruleForm.isRegex">
+          <el-radio-button :label="false">关键词</el-radio-button>
+          <el-radio-button :label="true">正则</el-radio-button>
+        </el-radio-group>
       </el-form-item>
       <el-form-item label="规则">
         <el-input v-model="ruleForm.pattern"></el-input>
       </el-form-item>
       <el-form-item label="替换为">
-        <el-input v-model="ruleForm.replacement"></el-input>
+        <el-input
+          v-model="ruleForm.replacement"
+          placeholder="留空表示删除匹配文本"
+        ></el-input>
       </el-form-item>
       <el-form-item label="替换范围">
-        <el-input v-model="ruleForm.scope"></el-input>
+        <el-input
+          v-model="ruleForm.scope"
+          placeholder="留空表示全局过滤"
+        ></el-input>
       </el-form-item>
-      <el-checkbox v-model="ruleForm.isRegex">使用正则表达式</el-checkbox>
-      <el-checkbox v-model="ruleForm.isEnabled">是否启用</el-checkbox>
+      <el-form-item label="是否启用">
+        <el-switch
+          v-model="ruleForm.isEnabled"
+          active-color="#13ce66"
+          inactive-color="#ff4949"
+          :active-value="true"
+          :inactive-value="false"
+        >
+        </el-switch>
+      </el-form-item>
     </el-form>
     <div slot="footer" class="dialog-footer">
       <el-button size="medium" @click="cancel">取 消</el-button>
@@ -57,38 +77,54 @@ export default {
   watch: {
     show(isVisible) {
       if (isVisible) {
-        this.ruleForm = this.rule || { ...defaultReplaceRule };
+        this.ruleForm = this.normalizeRuleForm(this.rule);
       }
     }
   },
   methods: {
+    normalizeRuleForm(rule) {
+      const ruleForm = { ...defaultReplaceRule, ...(rule || {}) };
+      return {
+        ...ruleForm,
+        replacement: ruleForm.replacement || "",
+        scope: ruleForm.scope || "",
+        isRegex: ruleForm.isRegex === true,
+        isEnabled: ruleForm.isEnabled !== false
+      };
+    },
     cancel() {
       this.$emit("setShow", false);
     },
     save() {
-      if (!this.ruleForm.name) {
+      const rule = this.normalizeRuleForm(this.ruleForm);
+      rule.name = rule.name.replace(/^\s+/, "").replace(/\s+$/, "");
+      rule.scope = rule.scope.replace(/^\s+/, "").replace(/\s+$/, "");
+      if (!rule.name) {
         this.$message.error("规则名不能为空");
         return;
       }
-      if (!this.ruleForm.pattern) {
+      if (!rule.pattern) {
         this.$message.error("规则不能为空");
         return;
       }
-      if (!this.ruleForm.scope) {
-        this.$message.error("替换范围不能为空");
-        return;
+      if (rule.isRegex) {
+        try {
+          new RegExp(rule.pattern, "ig");
+        } catch (error) {
+          this.$message.error("正则表达式格式错误");
+          return;
+        }
       }
       if (this.isAdd) {
         // 判断 name 是否唯一
         const isExisted = this.$store.state.filterRules.find(
-          v => v.name === this.ruleForm.name
+          v => v.name === rule.name
         );
         if (isExisted) {
           this.$message.error("规则名不能重复");
           return;
         }
       }
-      const rule = { ...this.ruleForm };
       // this.$store.commit("addFilterRule", rule);
       Axios.post("/saveReplaceRule", rule).then(
         res => {

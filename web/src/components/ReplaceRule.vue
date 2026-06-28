@@ -12,16 +12,13 @@
     :before-close="cancel"
   >
     <div class="custom-dialog-title" slot="title">
-      <span class="el-dialog__title"
-        >替换规则管理
-        <span class="float-right span-btn" @click="uploadFile">导入</span>
-        <input
-          ref="fileRef"
-          type="file"
-          @change="onFileChange($event)"
-          style="display:none"
-        />
-      </span>
+      <span class="el-dialog__title">替换规则管理</span>
+      <input
+        ref="fileRef"
+        type="file"
+        @change="onFileChange($event)"
+        style="display:none"
+      />
     </div>
     <div class="source-container table-container">
       <el-table
@@ -43,6 +40,9 @@
         >
         </el-table-column>
         <el-table-column property="scope" label="替换范围" min-width="150px">
+          <template slot-scope="scope">
+            {{ formatScope(scope.row.scope) }}
+          </template>
         </el-table-column>
         <el-table-column property="isEnabled" label="是否启用" min-width="80">
           <template slot-scope="scope">
@@ -67,15 +67,23 @@
       </el-table>
     </div>
     <div slot="footer" class="dialog-footer">
-      <el-button
-        type="primary"
-        size="medium"
-        class="float-left"
-        @click="deleteReplaceRules"
-        >批量删除</el-button
-      >
-      <span class="check-tip">已选择 {{ localSelection.length }} 个</span>
-      <el-button size="medium" @click="cancel">取消</el-button>
+      <div class="replace-rule-footer">
+        <div class="footer-left">
+          <el-button type="primary" size="medium" @click="deleteReplaceRules"
+            >批量删除</el-button
+          >
+          <span class="check-tip">已选择 {{ localSelection.length }} 个</span>
+        </div>
+        <div class="footer-right">
+          <el-button size="medium" @click="cancel">取消</el-button>
+          <el-button type="primary" size="medium" @click="uploadFile"
+            >导入</el-button
+          >
+          <el-button type="primary" size="medium" @click="addReplaceRule"
+            >添加</el-button
+          >
+        </div>
+      </div>
     </div>
   </el-dialog>
 </template>
@@ -84,6 +92,7 @@
 import { mapGetters } from "vuex";
 import Axios from "../plugins/axios";
 import eventBus from "../plugins/eventBus";
+import { defaultReplaceRule } from "../plugins/config.js";
 
 export default {
   model: {
@@ -113,6 +122,12 @@ export default {
         default:
           return cellValue;
       }
+    },
+    formatScope(scope) {
+      if (typeof scope !== "string") {
+        return "全局";
+      }
+      return scope.replace(/^\s+|\s+$/g, "") ? scope : "全局";
     },
     cancel() {
       this.$emit("setShow", false);
@@ -162,6 +177,9 @@ export default {
     },
     editReplaceRule(row) {
       eventBus.$emit("showReplaceRuleForm", { ...row }, false);
+    },
+    addReplaceRule() {
+      eventBus.$emit("showReplaceRuleForm", { ...defaultReplaceRule }, true);
     },
     uploadFile() {
       this.$refs.fileRef.dispatchEvent(new MouseEvent("click"));
@@ -253,7 +271,16 @@ export default {
 };
 </script>
 <style lang="stylus" scoped>
-.float-left {
-  float: left;
+.replace-rule-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.footer-left,
+.footer-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 </style>

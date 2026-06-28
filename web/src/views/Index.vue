@@ -5145,109 +5145,106 @@ export default {
 
       .wrapper {
         padding: 4px;
-        grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
         justify-content: stretch;
         align-items: stretch;
-        grid-gap: 20px 16px;
+        grid-gap: 18px;
 
         .book {
           box-sizing: border-box;
           width: 100%;
-          min-height: auto;
+          min-height: 138px;
           margin: 0;
-          padding: 0;
-          display: flex;
-          flex-direction: column;
+          padding: 12px;
+          display: grid;
+          grid-template-columns: 68px minmax(0, 1fr);
+          gap: 12px;
+          align-items: start;
           position: relative;
-          border: 0;
-          border-radius: 0;
-          background: transparent;
-          box-shadow: none;
+          border: 1px solid var(--modern-line);
+          border-radius: 8px;
+          background: var(--modern-raised);
+          box-shadow: var(--modern-card-shadow);
           justify-content: flex-start;
-          transition: transform 250ms cubic-bezier(0.2, 0, 0, 1);
+          transition: transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease, background 150ms ease;
 
           &:hover {
-            transform: translateY(-4px);
-            border-color: transparent;
-            background: transparent;
-            box-shadow: none;
+            transform: translateY(-2px);
+            border-color: rgba(79, 110, 247, 0.28);
+            background: var(--modern-surface);
+            box-shadow: 0 18px 38px rgba(38, 48, 66, 0.14);
 
             .cover-img .cover {
-              box-shadow: 0 16px 36px rgba(38, 48, 66, 0.22);
+              box-shadow: 0 12px 24px rgba(38, 48, 66, 0.2);
             }
           }
 
           .cover-img {
-            width: 100%;
-            height: 0;
-            padding-bottom: 140%;
-            position: relative;
-            border-radius: 8px;
+            width: 68px;
+            height: 96px;
+            padding-bottom: 0;
+            position: static;
+            border-radius: 6px;
             overflow: hidden;
 
             .cover {
-              position: absolute;
-              top: 0;
-              left: 0;
-              width: 100%;
-              height: 100%;
-              border-radius: 8px;
-              box-shadow: 0 6px 16px rgba(38, 48, 66, 0.12);
-              transition: box-shadow 300ms ease;
+              position: static;
+              width: 68px;
+              height: 96px;
+              border-radius: 6px;
+              box-shadow: 0 10px 20px rgba(38, 48, 66, 0.18);
+              transition: box-shadow 150ms ease;
             }
           }
 
           .info {
             min-width: 0;
-            min-height: auto;
+            min-height: 96px;
             height: auto;
             margin-left: 0;
-            margin-top: 10px;
-            display: flex;
-            flex-direction: column;
-            gap: 3px;
+            margin-top: 0;
+            display: grid;
+            align-content: space-between;
+            gap: 8px;
 
             .book-operation {
               position: absolute;
-              right: 6px;
-              top: 6px;
+              right: 12px;
+              top: 12px;
               z-index: 2;
-              font-size: 18px;
-              color: #fff;
-              text-shadow: 0 1px 4px rgba(0,0,0,0.4);
+              font-size: 20px;
+              color: var(--modern-muted);
+              text-shadow: none;
 
               .unread-num-badge {
                 position: absolute;
-                right: -4px;
-                top: -8px;
+                right: -8px;
+                top: -10px;
               }
             }
 
             .name {
               width: auto;
-              padding-right: 0;
+              padding-right: 28px;
               color: var(--modern-text);
-              font-size: 13px;
-              line-height: 1.35;
-              font-weight: 700;
-              max-height: 36px;
+              font-size: 15px;
+              line-height: 1.3;
+              font-weight: 900;
+              max-height: 39px;
               display: -webkit-box;
               -webkit-line-clamp: 2;
               -webkit-box-orient: vertical;
               overflow: hidden;
             }
 
-            .sub {
-              color: var(--modern-weak);
-              font-size: 11px;
-              line-height: 1.35;
-              font-weight: 500;
-            }
-
+            .sub,
             .intro,
             .dur-chapter,
             .last-chapter {
-              display: none;
+              color: var(--modern-muted);
+              font-size: 12px;
+              line-height: 1.4;
+              font-weight: 500;
             }
 
             .sub,
@@ -5597,16 +5594,16 @@ export default {
 
       .books-wrapper {
         .wrapper {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-          grid-gap: 16px 12px;
+          display: flex;
+          flex-direction: column;
+          grid-gap: 12px;
           padding: 4px;
 
           .book {
             box-sizing: border-box;
             width: 100%;
             margin-bottom: 0;
-            padding: 0;
+            padding: 10px 20px;
           }
         }
       }

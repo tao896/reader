@@ -1327,31 +1327,43 @@ export default {
       }
       try {
         this.filterRules.forEach(rule => {
+          if (!rule || !rule.pattern) {
+            return;
+          }
           if (
             typeof rule.isEnabled !== "undefined" &&
             rule.isEnabled === false
           ) {
             return;
           }
-          const scope = rule.scope.split(";");
-          if (
-            scope[0] === "*" ||
-            scope[0] === this.$store.getters.readingBook.name
-          ) {
-            if (
-              scope.length == 1 ||
-              (scope.length > 1 &&
-                scope[1] === this.$store.getters.readingBook.bookUrl)
-            ) {
-              if (rule.isRegex) {
-                content = content.replace(
-                  new RegExp(rule.pattern, "ig"),
-                  rule.replacement
-                );
-              } else {
-                content = content.replace(rule.pattern, rule.replacement);
-              }
+          const scopeText =
+            typeof rule.scope === "string"
+              ? rule.scope.replace(/^\s+|\s+$/g, "")
+              : "";
+          const scope = scopeText ? scopeText.split(";") : [];
+          const isGlobalScope = !scopeText || scope[0] === "*";
+          const isBookMatched =
+            isGlobalScope || scope[0] === this.$store.getters.readingBook.name;
+          const isBookUrlMatched =
+            isGlobalScope ||
+            scope.length === 1 ||
+            !scope[1] ||
+            scope[1] === this.$store.getters.readingBook.bookUrl;
+          if (!isBookMatched || !isBookUrlMatched) {
+            return;
+          }
+          try {
+            const replacement = rule.replacement || "";
+            if (rule.isRegex) {
+              content = content.replace(
+                new RegExp(rule.pattern, "ig"),
+                replacement
+              );
+            } else {
+              content = content.split(rule.pattern).join(replacement);
             }
+          } catch (error) {
+            //
           }
         });
       } catch (error) {
@@ -2054,31 +2066,29 @@ export default {
             this.$store.getters.config.selectionAction === "过滤弹窗" ||
             this.$store.getters.config.selectionAction === "操作弹窗"
           ) {
-            this.showTextOperate(text);
+            this.showTextFilterPrompt(text);
           }
         }, 200);
       }
       return text;
     },
-    async showTextOperate(text) {
-      const res = await this.$confirm(`请选择操作?`, "提示", {
-        confirmButtonText: "添加过滤规则",
-        cancelButtonText: "添加书签",
-        type: "warning",
-        closeOnClickModal: false,
-        closeOnPressEscape: false,
-        distinguishCancelAndClose: true
-      }).catch(action => {
-        return action === "close" ? "close" : false;
-      });
-      if (res === "close") {
-        return;
+    getUniqueReplaceRuleName(text) {
+      const textPreview =
+        text
+          .replace(/\s+/g, " ")
+          .replace(/^\s+/, "")
+          .replace(/\s+$/, "")
+          .slice(0, 12) || "选中文字";
+      const baseName = `文本过滤-${textPreview}`;
+      const ruleNameSet = new Set(this.filterRules.map(rule => rule.name));
+      if (!ruleNameSet.has(baseName)) {
+        return baseName;
       }
-      if (res) {
-        return this.showTextFilterPrompt(text);
-      } else {
-        return this.showAddBookmark(text);
+      let index = 2;
+      while (ruleNameSet.has(`${baseName}-${index}`)) {
+        index += 1;
       }
+      return `${baseName}-${index}`;
     },
     async showTextFilterPrompt(text) {
       if (this.showTextFilterPrompting) {
@@ -2089,7 +2099,7 @@ export default {
       }
 
       const replaceRule = Object.assign({}, defaultReplaceRule, {
-        name: "文本替换",
+        name: this.getUniqueReplaceRuleName(text),
         pattern: text,
         replacement: "",
         isRegex: false,

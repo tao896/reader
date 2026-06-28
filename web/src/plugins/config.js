@@ -40,7 +40,7 @@ const defaultDayConfig = {
   autoReadingPixel: 1,
   autoReadingLineTime: 1000,
   pageMode: "自适应",
-  selectionAction: "操作弹窗"
+  selectionAction: "过滤弹窗"
 };
 const defaultNightConfig = {
   configDefaultType: "黑夜默认",
@@ -65,7 +65,7 @@ const defaultNightConfig = {
   autoReadingPixel: 1,
   autoReadingLineTime: 1000,
   pageMode: "自适应",
-  selectionAction: "操作弹窗"
+  selectionAction: "过滤弹窗"
 };
 const settings = {
   shelfConfig: {

@@ -539,7 +539,7 @@ export default {
       fonts: ["系统", "黑体", "楷体", "宋体", "仿宋"],
       readMethods: ["上下滑动", "左右滑动", "上下滚动", "上下滚动2"],
       clickMethods: ["下一页", "自动", "不翻页"],
-      selectionActions: ["操作弹窗", "忽略"],
+      selectionActions: ["过滤弹窗", "忽略"],
       pageModes: ["自适应", "手机模式"],
       pageTypes: ["正常", "Kindle"],
       themeTypes: ["day", "night"],
@@ -573,9 +573,9 @@ export default {
       ...settings.config,
       ...this.config,
       selectionAction:
-        this.$store.state.config.selectionAction === "过滤弹窗"
-          ? "操作弹窗"
-          : "忽略"
+        this.$store.state.config.selectionAction === "忽略"
+          ? "忽略"
+          : "过滤弹窗"
     };
   },
   computed: {
@@ -624,7 +624,14 @@ export default {
         lastConfig = getCache("lastNormalConfig") || {};
       }
 
-      this.config = { ...this.config, ...(lastConfig || {}), pageType: type };
+      const nextConfig = {
+        ...this.config,
+        ...(lastConfig || {}),
+        pageType: type
+      };
+      nextConfig.selectionAction =
+        nextConfig.selectionAction === "忽略" ? "忽略" : "过滤弹窗";
+      this.config = nextConfig;
 
       this.$emit("readMethodChange");
       this.$emit("pageModeChange");
@@ -881,7 +888,9 @@ export default {
       this.config = {
         ...this.config,
         customConfig: customConfig.name,
-        ...customConfig
+        ...customConfig,
+        selectionAction:
+          customConfig.selectionAction === "忽略" ? "忽略" : "过滤弹窗"
       };
     },
     async deleteCustomConfig(index, name) {
