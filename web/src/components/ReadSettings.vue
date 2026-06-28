@@ -539,7 +539,7 @@ export default {
       fonts: ["系统", "黑体", "楷体", "宋体", "仿宋"],
       readMethods: ["上下滑动", "左右滑动", "上下滚动", "上下滚动2"],
       clickMethods: ["下一页", "自动", "不翻页"],
-      selectionActions: ["过滤弹窗", "忽略"],
+      selectionActions: ["操作菜单", "忽略"],
       pageModes: ["自适应", "手机模式"],
       pageTypes: ["正常", "Kindle"],
       themeTypes: ["day", "night"],
@@ -575,7 +575,7 @@ export default {
       selectionAction:
         this.$store.state.config.selectionAction === "忽略"
           ? "忽略"
-          : "过滤弹窗"
+          : "操作菜单"
     };
   },
   computed: {
@@ -630,7 +630,7 @@ export default {
         pageType: type
       };
       nextConfig.selectionAction =
-        nextConfig.selectionAction === "忽略" ? "忽略" : "过滤弹窗";
+        nextConfig.selectionAction === "忽略" ? "忽略" : "操作菜单";
       this.config = nextConfig;
 
       this.$emit("readMethodChange");
@@ -890,7 +890,7 @@ export default {
         customConfig: customConfig.name,
         ...customConfig,
         selectionAction:
-          customConfig.selectionAction === "忽略" ? "忽略" : "过滤弹窗"
+          customConfig.selectionAction === "忽略" ? "忽略" : "操作菜单"
       };
     },
     async deleteCustomConfig(index, name) {

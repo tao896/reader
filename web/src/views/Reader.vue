@@ -716,6 +716,10 @@ export default {
       showSpeechConfig: true,
 
       currentParagraph: null,
+      lastSelection: false,
+      selectionActionPrompting: false,
+      showTextFilterPrompting: false,
+      showAddBookmarking: false,
 
       startSavePosition: false,
 
@@ -1835,7 +1839,7 @@ export default {
       }
       if (this.lastSelection) {
         setTimeout(() => {
-          this.showTextFilterPrompt(this.lastSelection);
+          this.showSelectionActionMenu(this.lastSelection);
           this.lastSelection = false;
         }, 200);
         return;
@@ -1989,6 +1993,7 @@ export default {
         this.popBookShelfVisible ||
         this.popCataVisible ||
         this.readSettingsVisible ||
+        this.selectionActionPrompting ||
         this.showTextFilterPrompting
       ) {
         return;
@@ -2062,15 +2067,129 @@ export default {
       }
       if (text && show) {
         setTimeout(() => {
-          if (
-            this.$store.getters.config.selectionAction === "过滤弹窗" ||
-            this.$store.getters.config.selectionAction === "操作弹窗"
-          ) {
-            this.showTextFilterPrompt(text);
+          if (this.shouldShowSelectionAction()) {
+            this.showSelectionActionMenu(text);
           }
         }, 200);
       }
       return text;
+    },
+    shouldShowSelectionAction() {
+      return this.$store.getters.config.selectionAction !== "忽略";
+    },
+    clearTextSelection() {
+      try {
+        if (window.getSelection) {
+          window.getSelection().removeAllRanges();
+        } else if (document.selection) {
+          document.selection.empty();
+        }
+      } catch (error) {
+        //
+      }
+    },
+    async showSelectionActionMenu(text) {
+      if (this.selectionActionPrompting) {
+        return;
+      }
+      const pureText = (text || "").replace(/^\s+/, "").replace(/\s+$/, "");
+      if (!pureText) {
+        return;
+      }
+      const h = this.$createElement;
+      const preview =
+        pureText.length > 120 ? pureText.slice(0, 120) + "..." : pureText;
+      const closeAndRun = handler => {
+        this.$msgbox.close();
+        this.selectionActionPrompting = false;
+        this.clearTextSelection();
+        handler && handler();
+      };
+      this.selectionActionPrompting = true;
+      this.$msgbox({
+        title: "选中文字",
+        message: h("div", { class: "selection-action-panel" }, [
+          h("div", { class: "selection-action-preview" }, preview),
+          h("div", { class: "selection-action-buttons" }, [
+            h(
+              "el-button",
+              {
+                props: { type: "primary", size: "mini" },
+                on: {
+                  click: () =>
+                    closeAndRun(() => this.showTextFilterPrompt(pureText))
+                }
+              },
+              "添加过滤"
+            ),
+            h(
+              "el-button",
+              {
+                props: { size: "mini" },
+                on: {
+                  click: () => closeAndRun(() => this.showAddBookmark(pureText))
+                }
+              },
+              "添加书签"
+            ),
+            h(
+              "el-button",
+              {
+                props: { size: "mini" },
+                on: {
+                  click: () =>
+                    closeAndRun(() => this.searchSelectedText(pureText))
+                }
+              },
+              "书内搜索"
+            ),
+            h(
+              "el-button",
+              {
+                props: { size: "mini" },
+                on: {
+                  click: () =>
+                    closeAndRun(() => this.copySelectionText(pureText))
+                }
+              },
+              "复制"
+            )
+          ])
+        ]),
+        showConfirmButton: false,
+        showCancelButton: false,
+        closeOnClickModal: true,
+        closeOnPressEscape: true,
+        distinguishCancelAndClose: true,
+        beforeClose: (action, instance, done) => {
+          this.selectionActionPrompting = false;
+          done();
+        }
+      }).catch(() => {
+        this.selectionActionPrompting = false;
+      });
+    },
+    async copySelectionText(text) {
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          const textarea = document.createElement("textarea");
+          textarea.value = text;
+          textarea.style.position = "fixed";
+          textarea.style.opacity = "0";
+          document.body.appendChild(textarea);
+          textarea.select();
+          document.execCommand("copy");
+          document.body.removeChild(textarea);
+        }
+        this.$message.success("已复制");
+      } catch (error) {
+        this.$message.error("复制失败");
+      }
+    },
+    searchSelectedText(text) {
+      this.showSearchBookContentDialog(text);
     },
     getUniqueReplaceRuleName(text) {
       const textPreview =
@@ -2929,13 +3048,13 @@ export default {
         return traditionalized(text);
       }
     },
-    showSearchBookContentDialog() {
+    showSearchBookContentDialog(keyword) {
       let book = { ...this.$store.getters.readingBook };
       const shelfBook = this.$store.getters.shelfBooks.find(
         v => v.bookUrl === book.bookUrl
       );
       book = Object.assign(book, shelfBook || {});
-      eventBus.$emit("showSearchBookContentDialog", book);
+      eventBus.$emit("showSearchBookContentDialog", book, keyword || "");
     },
     showMatchKeyword(data) {
       if (this._inactive) {
@@ -3900,7 +4019,40 @@ export default {
     box-shadow: none;
   }
 }
+.selection-action-panel {
+  .selection-action-preview {
+    max-height: 140px;
+    overflow: auto;
+    padding: 10px;
+    border: 1px solid var(--ui-border);
+    border-radius: var(--ui-radius-sm);
+    background: var(--ui-bg);
+    color: var(--ui-text);
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.6;
+  }
+
+  .selection-action-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+
+    .el-button {
+      margin-left: 0;
+    }
+  }
+}
 .night-theme {
+  .selection-action-panel {
+    .selection-action-preview {
+      border-color: rgba(255,255,255,.1);
+      background: #1f2026;
+      color: #c5c8ce;
+    }
+  }
+
   .voice-list {
     .el-radio-button {
       box-shadow: none !important;

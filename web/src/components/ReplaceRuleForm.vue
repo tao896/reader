@@ -46,6 +46,26 @@
         >
         </el-switch>
       </el-form-item>
+      <el-divider></el-divider>
+      <el-form-item label="测试文本">
+        <el-input
+          v-model="previewText"
+          type="textarea"
+          :rows="4"
+          placeholder="输入一段文本测试当前规则"
+        ></el-input>
+      </el-form-item>
+      <el-form-item label="预览结果">
+        <div class="preview-meta" :class="{ error: previewResult.error }">
+          {{ previewResult.message }}
+        </div>
+        <el-input
+          :value="previewResult.text"
+          type="textarea"
+          :rows="4"
+          readonly
+        ></el-input>
+      </el-form-item>
     </el-form>
     <div slot="footer" class="dialog-footer">
       <el-button size="medium" @click="cancel">取 消</el-button>
@@ -67,17 +87,22 @@ export default {
   name: "ReplaceRuleForm",
   data() {
     return {
-      ruleForm: { ...defaultReplaceRule }
+      ruleForm: { ...defaultReplaceRule },
+      previewText: ""
     };
   },
   props: ["show", "rule", "isAdd"],
   computed: {
-    ...mapGetters(["dialogWidth", "dialogTop", "dialogContentHeight"])
+    ...mapGetters(["dialogWidth", "dialogTop", "dialogContentHeight"]),
+    previewResult() {
+      return this.buildPreviewResult();
+    }
   },
   watch: {
     show(isVisible) {
       if (isVisible) {
         this.ruleForm = this.normalizeRuleForm(this.rule);
+        this.previewText = this.ruleForm.pattern || "";
       }
     }
   },
@@ -91,6 +116,63 @@ export default {
         isRegex: ruleForm.isRegex === true,
         isEnabled: ruleForm.isEnabled !== false
       };
+    },
+    buildPreviewResult() {
+      const rule = this.normalizeRuleForm(this.ruleForm);
+      const source = this.previewText || "";
+      const replacement = rule.replacement || "";
+      if (!source) {
+        return {
+          text: "",
+          count: 0,
+          error: false,
+          message: "输入测试文本后显示预览"
+        };
+      }
+      if (!rule.pattern) {
+        return {
+          text: source,
+          count: 0,
+          error: false,
+          message: "填写规则后显示匹配结果"
+        };
+      }
+      if (!rule.isRegex) {
+        const pieces = source.split(rule.pattern);
+        const count = pieces.length - 1;
+        return {
+          text: pieces.join(replacement),
+          count,
+          error: false,
+          message: `匹配 ${count} 处`
+        };
+      }
+      try {
+        const countRegex = new RegExp(rule.pattern, "ig");
+        let count = 0;
+        let match = countRegex.exec(source);
+        while (match) {
+          count += 1;
+          if (match[0] === "") {
+            countRegex.lastIndex += 1;
+          }
+          match = countRegex.exec(source);
+        }
+        const replaceRegex = new RegExp(rule.pattern, "ig");
+        return {
+          text: source.replace(replaceRegex, replacement),
+          count,
+          error: false,
+          message: `匹配 ${count} 处`
+        };
+      } catch (error) {
+        return {
+          text: source,
+          count: 0,
+          error: true,
+          message: "正则表达式格式错误"
+        };
+      }
     },
     cancel() {
       this.$emit("setShow", false);
@@ -151,5 +233,14 @@ export default {
 <style lang="stylus" scoped>
 .float-left {
   float: left;
+}
+.preview-meta {
+  margin-bottom: 8px;
+  color: #909399;
+  line-height: 1.4;
+
+  &.error {
+    color: #f56c6c;
+  }
 }
 </style>

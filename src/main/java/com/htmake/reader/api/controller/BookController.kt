@@ -3176,18 +3176,21 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
         var keyword: String
         var lastIndex: Int
         var size: Int
+        var caseSensitive: Boolean
         if (context.request().method() == HttpMethod.POST) {
             // post 请求
             bookUrl = context.bodyAsJson.getString("url") ?: context.bodyAsJson.getString("bookUrl") ?: ""
             keyword = context.bodyAsJson.getString("keyword") ?: ""
             lastIndex = context.bodyAsJson.getInteger("lastIndex", 0)
             size = context.bodyAsJson.getInteger("size", 20)
+            caseSensitive = context.bodyAsJson.getBoolean("caseSensitive", true)
         } else {
             // get 请求
             bookUrl = context.queryParam("url").firstOrNull() ?: ""
             keyword = context.queryParam("keyword").firstOrNull() ?: ""
             lastIndex = context.queryParam("lastIndex").firstOrNull()?.toInt() ?: 0
             size = context.queryParam("size").firstOrNull()?.toInt() ?: 20
+            caseSensitive = context.queryParam("caseSensitive").firstOrNull()?.toBoolean() ?: true
         }
         if (bookUrl.isNullOrEmpty()) {
             return returnData.setErrorMsg("请输入书籍链接")
@@ -3227,7 +3230,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
         for (chapterIndex in lastIndex until chapterList.size) {
             currentIndex = chapterIndex
             var chapter = chapterList.get(chapterIndex)
-            var chapterResult = searchChapter(bookInfo, chapter, keyword)
+            var chapterResult = searchChapter(bookInfo, chapter, keyword, caseSensitive)
             if (chapterResult.size > 0) {
                 resultList.addAll(chapterResult)
             }
@@ -3239,7 +3242,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
         return returnData.setData(mapOf("list" to resultList, "lastIndex" to currentIndex))
     }
 
-    suspend fun searchChapter(book: Book, chapter: BookChapter, query: String): List<SearchResult> {
+    suspend fun searchChapter(book: Book, chapter: BookChapter, query: String, caseSensitive: Boolean = true): List<SearchResult> {
         val searchResultsWithinChapter: MutableList<SearchResult> = mutableListOf()
         val chapterContent = BookHelp.getContent(book, chapter)
         if (chapterContent != null) {
@@ -3256,7 +3259,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
             //         useReplace = false
             //     ).joinToString("")
             // }
-            val positions = searchPosition(chapterContent, query)
+            val positions = searchPosition(chapterContent, query, caseSensitive)
             logger.info("positions: {}", positions)
             positions.forEachIndexed { index, position ->
                 val construct = getResultAndQueryIndex(chapterContent, position, query)
@@ -3275,9 +3278,11 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
         return searchResultsWithinChapter
     }
 
-    private suspend fun searchPosition(mContent: String, pattern: String): List<Int> {
+    private suspend fun searchPosition(mContent: String, pattern: String, caseSensitive: Boolean = true): List<Int> {
         val position: MutableList<Int> = mutableListOf()
-        var index = mContent.indexOf(pattern)
+        val source = if (caseSensitive) mContent else mContent.lowercase()
+        val target = if (caseSensitive) pattern else pattern.lowercase()
+        var index = source.indexOf(target)
         if (index >= 0) {
             //搜索到内容允许净化
             // if (book!!.getUseReplaceRule()) {
@@ -3286,7 +3291,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
             // }
             while (index >= 0) {
                 position.add(index)
-                index = mContent.indexOf(pattern, index + 1)
+                index = source.indexOf(target, index + 1)
             }
         }
         return position

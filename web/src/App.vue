@@ -94,6 +94,7 @@
     <SearchBookContent
       v-model="showSearchBookContentDialog"
       :book="searchBook"
+      :initialKeyword="searchBookContentKeyword"
     />
 
     <BookmarkForm
@@ -243,6 +244,7 @@ export default {
 
       showSearchBookContentDialog: false,
       searchBook: {},
+      searchBookContentKeyword: "",
 
       isLogin: true,
 
@@ -372,9 +374,10 @@ export default {
       this.showRssArticleDialog = true;
       this.rssArticleInfo = rssArticleInfo;
     });
-    eventBus.$on("showSearchBookContentDialog", searchBook => {
-      this.showSearchBookContentDialog = true;
+    eventBus.$on("showSearchBookContentDialog", (searchBook, keyword) => {
       this.searchBook = searchBook;
+      this.searchBookContentKeyword = keyword || "";
+      this.showSearchBookContentDialog = true;
     });
     eventBus.$on("showBookmarkForm", (bookmark, isAddBookmark, callback) => {
       this.bookmark = bookmark;
