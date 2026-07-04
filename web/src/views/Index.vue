@@ -4254,7 +4254,7 @@ export default {
     transition: background-color var(--ui-transition);
 
     .shelf-main-card {
-      flex: 1;
+      flex: 1 1 auto;
       min-height: 0;
       display: flex;
       flex-direction: column;
@@ -4264,6 +4264,7 @@ export default {
       border-radius: var(--ui-radius);
       background: var(--ui-surface);
       box-shadow: var(--ui-shadow-sm);
+      overflow: hidden;
       transition: background var(--ui-transition), box-shadow var(--ui-transition), border-color var(--ui-transition);
     }
 
@@ -4338,9 +4339,10 @@ export default {
     }
 
     .books-wrapper {
-      flex: 1;
+      flex: 1 1 auto;
+      min-height: 0;
       overflow-x: hidden;
-      overflow-y: scroll;
+      overflow-y: auto;
 
       .wrapper {
         display: grid ;
@@ -5054,7 +5056,9 @@ export default {
     }
 
     .shelf-main-card {
+      flex: 0 0 auto;
       gap: 0;
+      min-height: 2480px;
       padding: 22px;
       border: 1px solid var(--modern-line);
       border-radius: 14px;
@@ -5405,8 +5409,10 @@ export default {
     }
 
     .books-wrapper {
-      flex: none;
-      overflow: visible;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-x: hidden;
+      overflow-y: auto;
       border: 0;
       border-radius: 0;
       background: transparent;
@@ -5529,6 +5535,20 @@ export default {
       }
     }
   }
+}
+
+.pc-shelf-theme.modern-shelf-layout {
+  --modern-bg: var(--shelf-page);
+  --modern-surface: var(--shelf-panel);
+  --modern-soft: var(--shelf-input);
+  --modern-raised: var(--shelf-card);
+  --modern-text: var(--shelf-text);
+  --modern-muted: var(--shelf-muted);
+  --modern-weak: var(--shelf-muted);
+  --modern-line: var(--shelf-line);
+  --modern-accent: var(--shelf-accent);
+  --modern-shadow: var(--shelf-shadow);
+  --modern-card-shadow: var(--shelf-card-shadow);
 }
 
 .unread-num-badge {
@@ -5809,7 +5829,7 @@ export default {
       padding-top: env(safe-area-inset-top) !important;
 
       .shelf-main-card {
-        min-height: 100%;
+        min-height: 0;
         padding: 0;
         border: 0;
         border-radius: 0;
@@ -5829,6 +5849,7 @@ export default {
         padding: 16px;
 
         .shelf-main-card {
+          min-height: 0;
           padding: 16px;
           border: 1px solid var(--modern-line);
           border-radius: 14px;
