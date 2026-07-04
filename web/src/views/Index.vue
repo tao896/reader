@@ -984,6 +984,7 @@
               v-for="book in bookList"
               :key="book.bookUrl"
               @click="toDetail(book)"
+              @contextmenu="openBookContextMenu($event, book)"
             >
               <div class="cover-img" @click.stop="showBookInfoDialog(book)">
                 <!-- <img class="cover" v-lazy="getCover(book.coverUrl)" alt="" /> -->
@@ -1079,6 +1080,33 @@
           </div>
         </div>
       </div>
+    </div>
+    <div
+      v-if="bookContextMenu.visible"
+      class="book-context-menu"
+      :style="{
+        left: bookContextMenu.x + 'px',
+        top: bookContextMenu.y + 'px'
+      }"
+      @click.stop
+      @contextmenu.prevent.stop
+    >
+      <button
+        type="button"
+        class="book-context-menu-item danger"
+        @click.stop="deleteBookFromContextMenu"
+      >
+        <i class="el-icon-delete"></i>
+        <span>删除书籍</span>
+      </button>
+      <button
+        type="button"
+        class="book-context-menu-item"
+        @click.stop="setBookGroupFromContextMenu"
+      >
+        <i class="el-icon-folder"></i>
+        <span>调整分组</span>
+      </button>
     </div>
     <el-dialog
       :title="isImportRssSource ? '导入RSS源' : '导入书源'"
@@ -1597,6 +1625,12 @@ export default {
       searchLastIndex: -1,
 
       showBookEditButton: false,
+      bookContextMenu: {
+        visible: false,
+        x: 0,
+        y: 0,
+        book: null
+      },
 
       popExploreVisible: false,
       loadingMore: false,
@@ -1741,10 +1775,14 @@ export default {
       }
     },
     showBookGroup() {
+      this.closeBookContextMenu();
       this.$nextTick(() => {
         // 手动处理 el-image 图片加载
         setTimeout(this.ensureLoadBookCover);
       });
+    },
+    isSearchResult() {
+      this.closeBookContextMenu();
     }
   },
   mounted() {
@@ -1765,10 +1803,27 @@ export default {
       }
       this.editBook(book, isAdd, onSuccess);
     });
+    document.addEventListener(
+      "click",
+      this.handleBookContextMenuDocumentClick,
+      true
+    );
+    document.addEventListener("keydown", this.handleBookContextMenuKeydown);
   },
   activated() {
     document.title = "阅读";
     this.scanCacheStorage();
+  },
+  deactivated() {
+    this.closeBookContextMenu();
+  },
+  beforeDestroy() {
+    document.removeEventListener(
+      "click",
+      this.handleBookContextMenuDocumentClick,
+      true
+    );
+    document.removeEventListener("keydown", this.handleBookContextMenuKeydown);
   },
   methods: {
     init(refresh) {
@@ -2924,6 +2979,80 @@ export default {
     showBookInfoDialog(book) {
       eventBus.$emit("showBookInfoDialog", book);
     },
+    openBookContextMenu(event, book) {
+      if (this.isSearchResult || !book || !book.bookUrl) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const menuWidth = 156;
+      const menuHeight = 84;
+      const edgePadding = 8;
+      const viewportWidth =
+        window.innerWidth || document.documentElement.clientWidth || menuWidth;
+      const viewportHeight =
+        window.innerHeight ||
+        document.documentElement.clientHeight ||
+        menuHeight;
+      const maxX = Math.max(
+        edgePadding,
+        viewportWidth - menuWidth - edgePadding
+      );
+      const maxY = Math.max(
+        edgePadding,
+        viewportHeight - menuHeight - edgePadding
+      );
+      this.bookContextMenu = {
+        visible: true,
+        x: Math.min(Math.max(event.clientX, edgePadding), maxX),
+        y: Math.min(Math.max(event.clientY, edgePadding), maxY),
+        book
+      };
+    },
+    closeBookContextMenu() {
+      if (!this.bookContextMenu.visible) {
+        return;
+      }
+      this.bookContextMenu = {
+        visible: false,
+        x: 0,
+        y: 0,
+        book: null
+      };
+    },
+    handleBookContextMenuKeydown(event) {
+      if (event.key === "Escape") {
+        this.closeBookContextMenu();
+      }
+    },
+    handleBookContextMenuDocumentClick(event) {
+      if (!this.bookContextMenu.visible) {
+        return;
+      }
+      if (
+        event.target &&
+        event.target.closest &&
+        event.target.closest(".book-context-menu")
+      ) {
+        return;
+      }
+      this.closeBookContextMenu();
+    },
+    deleteBookFromContextMenu() {
+      const book = this.bookContextMenu.book;
+      this.closeBookContextMenu();
+      this.deleteBook(book);
+    },
+    setBookGroupFromContextMenu() {
+      const book = this.bookContextMenu.book;
+      this.closeBookContextMenu();
+      if (!book || !book.bookUrl) {
+        this.$message.error("书籍信息错误");
+        return;
+      }
+      this.$store.commit("setShowBookInfo", book);
+      eventBus.$emit("showBookGroupDialog", true);
+    },
     async saveUserConfig() {
       if (!window.localStorage) {
         this.$message.error("当前终端不支持localStorage");
@@ -3614,6 +3743,7 @@ export default {
         this.$refs.bookList ||
         this.$refs.shelfWrapper;
       this.lastScrollTop = target.scrollTop || 0;
+      this.closeBookContextMenu();
     },
     modernUnreadCount(book) {
       if (!book || !book.totalChapterNum) return 0;
@@ -5551,6 +5681,65 @@ export default {
   --modern-card-shadow: var(--shelf-card-shadow);
 }
 
+.book-context-menu {
+  position: fixed;
+  z-index: 3201;
+  box-sizing: border-box;
+  width: 156px;
+  padding: 6px;
+  border: 1px solid var(--ui-border, rgba(20, 26, 34, 0.1));
+  border-radius: 8px;
+  background: var(--ui-surface, #fff);
+  box-shadow: var(--ui-shadow-lg, 0 16px 42px rgba(20, 26, 34, 0.18));
+}
+
+.book-context-menu-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  outline: none;
+  background: transparent;
+  color: var(--ui-text, #1f2530);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 36px;
+  text-align: left;
+  transition: background var(--ui-transition), color var(--ui-transition);
+
+  i {
+    flex: 0 0 auto;
+    margin-right: 8px;
+    font-size: 16px;
+  }
+
+  span {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  &:hover,
+  &:focus {
+    background: rgba(79,110,247,.08);
+    color: var(--ui-accent, #4f6ef7);
+  }
+
+  &.danger {
+    color: #f56c6c;
+
+    &:hover,
+    &:focus {
+      background: rgba(245,108,108,.1);
+      color: #f56c6c;
+    }
+  }
+}
+
 .unread-num-badge {
   >>>.el-badge__content {
     border: none;
@@ -5586,6 +5775,14 @@ export default {
   }
   .book .info .book-operation {
     color: var(--ui-text-muted) !important;
+  }
+  .book-context-menu {
+    border-color: rgba(255,255,255,.08);
+    background: #1e1e24;
+    box-shadow: 0 16px 42px rgba(0,0,0,.36);
+  }
+  .book-context-menu-item {
+    color: #e2e4e8;
   }
   .book .info .sub {
     color: var(--ui-text-muted) !important;
@@ -5947,7 +6144,7 @@ export default {
 .night-theme .popper-intro {
   background: #1e1e24;
   color: #c5c8ce !important;
-  border: 1px solid rgba(255,255,255,.06);
+  border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: var(--ui-radius);
   box-shadow: var(--ui-shadow-lg);
 }
@@ -6037,13 +6234,13 @@ export default {
   transition: all var(--ui-transition);
 }
 .modern-action-grid button:hover {
-  border-color: rgba(79,110,247,.26);
-  background: rgba(79,110,247,.08);
+  border-color: rgba(79, 110, 247, 0.26);
+  background: rgba(79, 110, 247, 0.08);
   color: var(--ui-accent);
 }
 @media (hover: hover) {
   .book:hover {
-    background: rgba(79,110,247,.04);
+    background: rgba(79, 110, 247, 0.04);
     transition: background var(--ui-transition);
   }
   .el-icon-close:hover {
