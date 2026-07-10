@@ -12,7 +12,10 @@ import com.htmake.reader.entity.BasicError
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.io.File
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
 import java.nio.file.Paths
+import java.nio.file.StandardCopyOption
 import com.htmake.reader.config.AppConfig
 import com.google.gson.reflect.TypeToken
 import kotlin.reflect.KProperty1
@@ -149,10 +152,35 @@ fun saveStorage(vararg name: String, value: Any, pretty: Boolean = false) {
         file.parentFile.mkdirs()
     }
 
-    if (!file.exists()) {
-        file.createNewFile()
+    writeBytesAtomically(file, toJson.toByteArray(Charsets.UTF_8))
+}
+
+fun writeBytesAtomically(file: File, bytes: ByteArray) {
+    if (!file.parentFile.exists()) {
+        file.parentFile.mkdirs()
     }
-    file.writeText(toJson)
+    val tempFile = File.createTempFile(file.name + ".", ".tmp", file.parentFile)
+    try {
+        tempFile.writeBytes(bytes)
+        try {
+            Files.move(
+                tempFile.toPath(),
+                file.toPath(),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING
+            )
+        } catch (error: AtomicMoveNotSupportedException) {
+            Files.move(
+                tempFile.toPath(),
+                file.toPath(),
+                StandardCopyOption.REPLACE_EXISTING
+            )
+        }
+    } finally {
+        if (tempFile.exists()) {
+            tempFile.delete()
+        }
+    }
 }
 
 fun getStorage(vararg name: String): String?  {

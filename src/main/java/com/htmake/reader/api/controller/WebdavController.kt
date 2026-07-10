@@ -35,6 +35,7 @@ import com.htmake.reader.utils.unzip
 import com.htmake.reader.utils.zip
 import com.htmake.reader.utils.jsonEncode
 import com.htmake.reader.utils.getRelativePath
+import com.htmake.reader.utils.writeBytesAtomically
 import com.htmake.reader.verticle.RestVerticle
 import com.htmake.reader.SpringEvent
 import org.springframework.stereotype.Component
@@ -70,6 +71,10 @@ import kotlinx.coroutines.CoroutineScope
 // import io.legado.app.help.coroutine.Coroutine
 
 private val logger = KotlinLogging.logger {}
+
+internal fun shouldStoreBookProgressFile(storedTime: Long?, incomingTime: Long?): Boolean {
+    return incomingTime != null && (storedTime == null || incomingTime >= storedTime)
+}
 
 class WebdavController(coroutineContext: CoroutineContext, router: Router, onHandlerError: (RoutingContext, Exception) -> Unit): BaseController(coroutineContext) {
 
@@ -367,15 +372,78 @@ class WebdavController(coroutineContext: CoroutineContext, router: Router, onHan
             context.response().setStatusCode(405).end()
             return
         }
-        if (file.exists()) {
-            file.delete();
-        }
         try {
-            file.writeBytes(context.getBody().getBytes())
-            // 同步用户进度
-            if (file.toString().indexOf("/bookProgress/") > 0 && file.toString().indexOf(".json") > 0) {
-                val userNameSpace = getUserNameSpace(context)
-                BookController(coroutineContext).syncBookProgressFromWebdav(file, userNameSpace)
+            val uploadBytes = context.getBody().getBytes()
+            val isBookProgressFile = path.contains("/bookProgress/") && path.endsWith(".json", true)
+            val userNameSpace = if (isBookProgressFile) getUserNameSpace(context) else null
+            val progressStored = if (userNameSpace != null) {
+                val incomingProgressJson = runCatching {
+                    asJsonObject(String(uploadBytes, Charsets.UTF_8))
+                }.getOrNull()
+                val incomingProgressBook = parseWebdavBookProgress(
+                    incomingProgressJson
+                )
+                val incomingProgressTime = incomingProgressBook?.durChapterTime
+                val lock = shelfEditLocks.computeIfAbsent(userNameSpace) { Any() }
+                synchronized(lock) {
+                    val storedProgressTime = if (file.exists()) {
+                        runCatching {
+                            parsePlausibleBookProgressTime(
+                                asJsonObject(file.readText())?.getValue("durChapterTime")
+                            )
+                        }.getOrNull()
+                    } else {
+                        null
+                    }
+                    val shelfProgressTime = incomingProgressBook?.let { incomingBook ->
+                        val bookshelf = asJsonArray(getUserStorage(userNameSpace, "bookshelf"))
+                        var exactTime: Long? = null
+                        var fallbackTime: Long? = null
+                        if (bookshelf != null) {
+                            for (i in 0 until bookshelf.size()) {
+                                val shelfBook = bookshelf.getJsonObject(i).mapTo(Book::class.java)
+                                if (incomingBook.bookUrl.isNotEmpty() &&
+                                    shelfBook.bookUrl == incomingBook.bookUrl) {
+                                    exactTime = parsePlausibleBookProgressTime(
+                                        shelfBook.durChapterTime
+                                    )
+                                    break
+                                }
+                                if (incomingBook.bookUrl.isEmpty() && fallbackTime == null &&
+                                    incomingBook.name.isNotEmpty() &&
+                                    shelfBook.name == incomingBook.name &&
+                                    incomingBook.author.isNotEmpty() &&
+                                    shelfBook.author == incomingBook.author) {
+                                    fallbackTime = parsePlausibleBookProgressTime(
+                                        shelfBook.durChapterTime
+                                    )
+                                }
+                            }
+                        }
+                        exactTime ?: fallbackTime
+                    }
+                    val newestStoredTime = listOfNotNull(
+                        storedProgressTime,
+                        shelfProgressTime
+                    ).maxOrNull()
+                    if (!shouldStoreBookProgressFile(newestStoredTime, incomingProgressTime)) {
+                        false
+                    } else {
+                        writeBytesAtomically(file, uploadBytes)
+                        BookController(coroutineContext).syncBookProgressFromWebdav(
+                            incomingProgressBook!!,
+                            userNameSpace
+                        )
+                        true
+                    }
+                }
+            } else {
+                file.writeBytes(uploadBytes)
+                true
+            }
+            if (!progressStored) {
+                context.response().setStatusCode(201).end()
+                return
             }
             context.response().setStatusCode(201).end()
         } catch(e: Exception) {

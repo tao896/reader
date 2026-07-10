@@ -19,6 +19,12 @@ const getCurrentUserName = state => {
     : (state.userInfo || {}).username || "default";
 };
 
+const cacheReadingBook = (state, readingBook) => {
+  // eslint-disable-next-line no-unused-vars
+  const { catalog, latestChapterTitle, intro, ...info } = readingBook;
+  setCache(getCurrentUserName(state) + "@readingRecent", JSON.stringify(info));
+};
+
 export default new Vuex.Store({
   state: {
     connected: false,
@@ -85,6 +91,7 @@ export default new Vuex.Store({
           canUpdate: v.canUpdate,
           durChapterIndex: v.durChapterIndex,
           durChapterPos: v.durChapterPos,
+          durChapterPositionType: v.durChapterPositionType,
           durChapterTime: v.durChapterTime,
           durChapterTitle: v.durChapterTitle,
           kind: v.kind,
@@ -120,11 +127,21 @@ export default new Vuex.Store({
                 ? state.shelfBooks[index].canUpdate
                 : book.canUpdate,
             durChapterIndex:
-              book.durChapterIndex || state.shelfBooks[index].durChapterIndex,
+              typeof book.durChapterIndex === "undefined"
+                ? state.shelfBooks[index].durChapterIndex
+                : book.durChapterIndex,
             durChapterPos:
-              book.durChapterPos || state.shelfBooks[index].durChapterPos,
+              typeof book.durChapterPos === "undefined"
+                ? state.shelfBooks[index].durChapterPos
+                : book.durChapterPos,
+            durChapterPositionType:
+              typeof book.durChapterPositionType === "undefined"
+                ? state.shelfBooks[index].durChapterPositionType
+                : book.durChapterPositionType,
             durChapterTime:
-              book.durChapterTime || state.shelfBooks[index].durChapterTime,
+              typeof book.durChapterTime === "undefined"
+                ? state.shelfBooks[index].durChapterTime
+                : book.durChapterTime,
             durChapterTitle:
               book.durChapterTitle || state.shelfBooks[index].durChapterTitle,
             kind: book.kind || state.shelfBooks[index].kind,
@@ -138,9 +155,17 @@ export default new Vuex.Store({
             origin: book.origin || state.shelfBooks[index].origin,
             originName: book.originName || state.shelfBooks[index].originName,
             totalChapterNum:
-              book.totalChapterNum || state.shelfBooks[index].totalChapterNum,
-            type: book.type || state.shelfBooks[index].type,
-            group: book.group || state.shelfBooks[index].group
+              typeof book.totalChapterNum === "undefined"
+                ? state.shelfBooks[index].totalChapterNum
+                : book.totalChapterNum,
+            type:
+              typeof book.type === "undefined"
+                ? state.shelfBooks[index].type
+                : book.type,
+            group:
+              typeof book.group === "undefined"
+                ? state.shelfBooks[index].group
+                : book.group
           }
         };
         state.shelfBooks = [].concat(state.shelfBooks);
@@ -148,33 +173,81 @@ export default new Vuex.Store({
     },
     setReadingBook(state, readingBook) {
       state.readingBook = readingBook;
-      // 更新书架信息
-      setTimeout(() => {
-        for (let i = 0; i < state.shelfBooks.length; i++) {
-          if (state.shelfBooks[i].bookUrl === readingBook.bookUrl) {
-            const title = ((readingBook.catalog || [])[readingBook.index] || {})
-              .title;
-            state.shelfBooks[i] = {
-              ...state.shelfBooks[i],
-              durChapterTime: new Date().getTime(),
-              durChapterIndex: readingBook.index,
-              ...(title
-                ? {
-                    durChapterTitle: title
-                  }
-                : {})
-            };
-            break;
-          }
-        }
-        state.shelfBooks = [].concat(state.shelfBooks);
-      }, 100);
-      // eslint-disable-next-line no-unused-vars
-      const { catalog, latestChapterTitle, intro, ...info } = readingBook;
-      setCache(
-        getCurrentUserName(state) + "@readingRecent",
-        JSON.stringify(info)
+      cacheReadingBook(state, readingBook);
+    },
+    setReadingBookIndex(state, progress) {
+      if (
+        progress &&
+        state.readingBook &&
+        state.readingBook.bookUrl === progress.bookUrl &&
+        typeof progress.chapterIndex !== "undefined"
+      ) {
+        state.readingBook = {
+          ...state.readingBook,
+          index: progress.chapterIndex
+        };
+        cacheReadingBook(state, state.readingBook);
+      }
+    },
+    setReadingProgress(state, progress) {
+      if (!progress || !progress.bookUrl) {
+        return;
+      }
+      const chapterIndex =
+        typeof progress.chapterIndex === "undefined"
+          ? progress.durChapterIndex
+          : progress.chapterIndex;
+      const position =
+        typeof progress.position === "undefined"
+          ? progress.durChapterPos
+          : progress.position;
+      const positionType =
+        typeof progress.positionType === "undefined"
+          ? progress.durChapterPositionType
+          : progress.positionType;
+      const chapterTitle =
+        typeof progress.chapterTitle === "undefined"
+          ? progress.durChapterTitle
+          : progress.chapterTitle;
+      const updatedAt =
+        typeof progress.updatedAt === "undefined"
+          ? progress.durChapterTime
+          : progress.updatedAt;
+      const progressFields = {};
+      if (typeof chapterIndex !== "undefined") {
+        progressFields.durChapterIndex = chapterIndex;
+      }
+      if (typeof position !== "undefined") {
+        progressFields.durChapterPos = position;
+      }
+      if (typeof positionType !== "undefined") {
+        progressFields.durChapterPositionType = positionType;
+      }
+      if (typeof chapterTitle !== "undefined") {
+        progressFields.durChapterTitle = chapterTitle;
+      }
+      if (typeof updatedAt !== "undefined") {
+        progressFields.durChapterTime = updatedAt;
+      }
+      if (state.readingBook && state.readingBook.bookUrl === progress.bookUrl) {
+        state.readingBook = {
+          ...state.readingBook,
+          ...progressFields,
+          ...(progress.setCurrentIndex && typeof chapterIndex !== "undefined"
+            ? { index: chapterIndex }
+            : {})
+        };
+      }
+      const shelfIndex = state.shelfBooks.findIndex(
+        book => book.bookUrl === progress.bookUrl
       );
+      if (shelfIndex >= 0) {
+        state.shelfBooks[shelfIndex] = {
+          ...state.shelfBooks[shelfIndex],
+          ...progressFields
+        };
+        state.shelfBooks = [].concat(state.shelfBooks);
+      }
     },
     setConfig(state, config) {
       delete config.name;

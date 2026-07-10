@@ -171,4 +171,6 @@ request.post = async (url, data, options) => {
   });
 };
 
+request.createCancelTokenSource = () => Axios.CancelToken.source();
+
 export default request;

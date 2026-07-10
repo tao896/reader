@@ -39,6 +39,7 @@ import com.htmake.reader.utils.unzip
 import com.htmake.reader.utils.zip
 import com.htmake.reader.utils.jsonEncode
 import com.htmake.reader.utils.getRelativePath
+import com.htmake.reader.utils.writeBytesAtomically
 import com.htmake.reader.verticle.RestVerticle
 import com.htmake.reader.SpringEvent
 import org.springframework.stereotype.Component
@@ -87,6 +88,248 @@ import me.ag2s.epublib.util.ResourceUtil
 // import io.legado.app.help.coroutine.Coroutine
 
 private val logger = KotlinLogging.logger {}
+internal val shelfEditLocks = java.util.concurrent.ConcurrentHashMap<String, Any>()
+private val lastBookProgressTimes = java.util.concurrent.ConcurrentHashMap<
+    String,
+    java.util.concurrent.atomic.AtomicLong
+>()
+
+internal const val BOOK_PROGRESS_TEXT_OFFSET = "textOffset"
+internal const val BOOK_PROGRESS_CHAPTER_RATIO = "chapterRatio"
+internal const val BOOK_PROGRESS_AUDIO_SECONDS = "audioSeconds"
+internal const val BOOK_PROGRESS_MAX_CHAPTER_RATIO = 1_000_000
+internal const val BOOK_PROGRESS_MAX_IMPORTED_TIME = 253_402_300_799_999L
+internal const val BOOK_PROGRESS_MAX_FUTURE_DRIFT = 366L * 24 * 60 * 60 * 1000
+internal const val BOOK_PROGRESS_MAX_IMPORT_FUTURE_DRIFT = 365L * 24 * 60 * 60 * 1000
+private const val BOOK_PROGRESS_CLOCK_RESET_THRESHOLD = Long.MAX_VALUE / 2
+
+internal fun nextBookProgressTime(
+    progressKey: String,
+    persistedTime: Long = 0,
+    now: Long = System.currentTimeMillis()
+): Long {
+    val progressClock = lastBookProgressTimes.computeIfAbsent(progressKey) {
+        java.util.concurrent.atomic.AtomicLong(0)
+    }
+    val nextPersistedTime = if (isPlausibleBookProgressTime(persistedTime, now)) {
+        persistedTime + 1
+    } else {
+        0
+    }
+    while (true) {
+        val previous = progressClock.get()
+        if (previous > BOOK_PROGRESS_CLOCK_RESET_THRESHOLD) {
+            progressClock.compareAndSet(previous, 0)
+            continue
+        }
+        val next = Math.max(Math.max(now, nextPersistedTime), previous + 1)
+        if (progressClock.compareAndSet(previous, next)) {
+            return next
+        }
+    }
+}
+
+private fun getBookProgressClockKey(userNameSpace: String, bookUrl: String): String {
+    return userNameSpace + "\u0000" + bookUrl
+}
+
+internal fun isValidBookProgressPosition(position: Int, positionType: String): Boolean {
+    return when (positionType) {
+        BOOK_PROGRESS_TEXT_OFFSET, BOOK_PROGRESS_AUDIO_SECONDS -> position >= 0
+        BOOK_PROGRESS_CHAPTER_RATIO -> position in 0..BOOK_PROGRESS_MAX_CHAPTER_RATIO
+        else -> false
+    }
+}
+
+internal fun parseBookProgressInt(value: Any?): Int? {
+    val longValue = value?.toString()?.toLongOrNull() ?: return null
+    return if (longValue in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong()) longValue.toInt() else null
+}
+
+internal fun parseBookProgressTime(value: Any?): Long? {
+    return value?.toString()?.toLongOrNull()?.takeIf {
+        it in 0..BOOK_PROGRESS_MAX_IMPORTED_TIME
+    }
+}
+
+internal fun isPlausibleBookProgressTime(
+    progressTime: Long,
+    now: Long = System.currentTimeMillis()
+): Boolean {
+    return isBookProgressTimeWithinFutureDrift(
+        progressTime,
+        now,
+        BOOK_PROGRESS_MAX_FUTURE_DRIFT
+    )
+}
+
+private fun isBookProgressTimeWithinFutureDrift(
+    progressTime: Long,
+    now: Long,
+    maxFutureDrift: Long
+): Boolean {
+    if (progressTime !in 0..BOOK_PROGRESS_MAX_IMPORTED_TIME) {
+        return false
+    }
+    val maxFutureTime = if (
+        now > BOOK_PROGRESS_MAX_IMPORTED_TIME - maxFutureDrift
+    ) {
+        BOOK_PROGRESS_MAX_IMPORTED_TIME
+    } else {
+        now + maxFutureDrift
+    }
+    return progressTime <= maxFutureTime
+}
+
+internal fun parsePlausibleBookProgressTime(
+    value: Any?,
+    now: Long = System.currentTimeMillis()
+): Long? {
+    return parseBookProgressTime(value)?.takeIf {
+        isPlausibleBookProgressTime(it, now)
+    }
+}
+
+internal fun parseImportedBookProgressTime(
+    value: Any?,
+    now: Long = System.currentTimeMillis()
+): Long? {
+    return parseBookProgressTime(value)?.takeIf {
+        isBookProgressTimeWithinFutureDrift(
+            it,
+            now,
+            BOOK_PROGRESS_MAX_IMPORT_FUTURE_DRIFT
+        )
+    }
+}
+
+internal fun parseWebdavBookProgress(progressJson: JsonObject?): Book? {
+    if (progressJson == null) {
+        return null
+    }
+    val progressTime = parseImportedBookProgressTime(
+        progressJson.getValue("durChapterTime")
+    ) ?: return null
+    val chapterIndex = if (progressJson.containsKey("durChapterIndex")) {
+        parseBookProgressInt(progressJson.getValue("durChapterIndex"))
+            ?: return null
+    } else {
+        0
+    }
+    val chapterPosition = if (progressJson.containsKey("durChapterPos")) {
+        parseBookProgressInt(progressJson.getValue("durChapterPos"))
+            ?: return null
+    } else {
+        0
+    }
+    val book = runCatching { progressJson.mapTo(Book::class.java) }.getOrNull()
+        ?: return null
+    book.durChapterTime = progressTime
+    book.durChapterIndex = chapterIndex
+    book.durChapterPos = chapterPosition
+    if (chapterIndex < 0 || chapterPosition < 0) {
+        return null
+    }
+    val positionType = book.durChapterPositionType
+    if (positionType != null &&
+        !isValidBookProgressPosition(book.durChapterPos, positionType)) {
+        return null
+    }
+    if (book.bookUrl.isEmpty() && (book.name.isEmpty() || book.author.isEmpty())) {
+        return null
+    }
+    return book
+}
+
+private fun getBookProgressResponse(book: Book): Map<String, Any?> {
+    return linkedMapOf(
+        "bookUrl" to book.bookUrl,
+        "durChapterIndex" to book.durChapterIndex,
+        "durChapterTitle" to book.durChapterTitle,
+        "durChapterPos" to book.durChapterPos,
+        "durChapterPositionType" to book.durChapterPositionType,
+        "durChapterTime" to book.durChapterTime
+    )
+}
+
+internal fun applyBookProgress(
+    book: Book,
+    bookChapter: BookChapter,
+    position: Int?,
+    positionType: String?,
+    progressTime: Long
+): Book {
+    val chapterChanged = book.durChapterIndex != bookChapter.index
+    book.durChapterIndex = bookChapter.index
+    book.durChapterTitle = bookChapter.title
+    if (position != null && positionType != null) {
+        book.durChapterPos = position
+        book.durChapterPositionType = positionType
+    } else if (chapterChanged) {
+        // Legacy clients only send a chapter. Preserve same-chapter positions, but a real
+        // chapter change must start at the top and remain untyped for old-data compatibility.
+        book.durChapterPos = 0
+        book.durChapterPositionType = null
+    }
+    book.durChapterTime = progressTime
+    return book
+}
+
+internal fun applyBookProgressFromWebdav(existingBook: Book, incomingBook: Book): Boolean {
+    val existingTimeIsValid = isPlausibleBookProgressTime(
+        existingBook.durChapterTime
+    )
+    if (parseImportedBookProgressTime(incomingBook.durChapterTime) == null ||
+        incomingBook.durChapterIndex < 0 ||
+        incomingBook.durChapterPos < 0 ||
+        (incomingBook.durChapterPositionType != null &&
+            !isValidBookProgressPosition(
+                incomingBook.durChapterPos,
+                incomingBook.durChapterPositionType!!
+            )) ||
+        (existingTimeIsValid &&
+            incomingBook.durChapterTime < existingBook.durChapterTime)) {
+        return false
+    }
+    existingBook.durChapterIndex = incomingBook.durChapterIndex
+    existingBook.durChapterPos = incomingBook.durChapterPos
+    existingBook.durChapterPositionType = incomingBook.durChapterPositionType
+    existingBook.durChapterTime = incomingBook.durChapterTime
+    existingBook.durChapterTitle = incomingBook.durChapterTitle
+    return true
+}
+
+internal fun preserveNewerBookProgress(existingBook: Book, incomingBook: Book): Boolean {
+    if (!isPlausibleBookProgressTime(existingBook.durChapterTime) ||
+        existingBook.durChapterTime <= incomingBook.durChapterTime) {
+        return false
+    }
+    incomingBook.durChapterIndex = existingBook.durChapterIndex
+    incomingBook.durChapterPos = existingBook.durChapterPos
+    incomingBook.durChapterPositionType = existingBook.durChapterPositionType
+    incomingBook.durChapterTime = existingBook.durChapterTime
+    incomingBook.durChapterTitle = existingBook.durChapterTitle
+    return true
+}
+
+internal fun findShelfBookIndex(
+    shelfBooks: List<Book>,
+    targetBook: Book,
+    allowNameAuthorFallback: Boolean
+): Int {
+    if (targetBook.bookUrl.isNotEmpty()) {
+        val exactIndex = shelfBooks.indexOfFirst { it.bookUrl == targetBook.bookUrl }
+        if (exactIndex >= 0) {
+            return exactIndex
+        }
+    }
+    if (!allowNameAuthorFallback || targetBook.name.isEmpty() || targetBook.author.isEmpty()) {
+        return -1
+    }
+    return shelfBooks.indexOfFirst {
+        it.name == targetBook.name && it.author == targetBook.author
+    }
+}
 
 class BookController(coroutineContext: CoroutineContext): BaseController(coroutineContext) {
 
@@ -625,41 +868,81 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
         if (!checkAuth(context)) {
             return returnData.setData("NEED_LOGIN").setErrorMsg("请登录后使用")
         }
-        var bookUrl: String
-        var chapterIndex: Int
-        if (context.request().method() == HttpMethod.POST) {
-            // post 请求
-            bookUrl = context.bodyAsJson.getString("url") ?: context.bodyAsJson.getJsonObject("searchBook").getString("bookUrl") ?: ""
-            chapterIndex = context.bodyAsJson.getInteger("index", -1)
+        val isPost = context.request().method() == HttpMethod.POST
+        val body = if (isPost) context.bodyAsJson else null
+        val bookUrl: String
+        val chapterIndex: Int
+        val positionProvided: Boolean
+        val positionTypeProvided: Boolean
+        val position: Int?
+        val positionType: String?
+        if (isPost) {
+            bookUrl = body?.getString("url") ?: body?.getJsonObject("searchBook")?.getString("bookUrl") ?: ""
+            chapterIndex = parseBookProgressInt(body?.getValue("index")) ?: -1
+            positionProvided = body?.containsKey("position") == true
+            positionTypeProvided = body?.containsKey("positionType") == true
+            position = parseBookProgressInt(body?.getValue("position"))
+            positionType = body?.getValue("positionType")?.toString()
         } else {
-            // get 请求
             bookUrl = context.queryParam("url").firstOrNull() ?: ""
-            chapterIndex = context.queryParam("index").firstOrNull()?.toInt() ?: -1
+            chapterIndex = parseBookProgressInt(context.queryParam("index").firstOrNull()) ?: -1
+            positionProvided = context.queryParam("position").isNotEmpty()
+            positionTypeProvided = context.queryParam("positionType").isNotEmpty()
+            position = parseBookProgressInt(context.queryParam("position").firstOrNull())
+            positionType = context.queryParam("positionType").firstOrNull()
         }
-        if (bookUrl.isNullOrEmpty()) {
+        if (bookUrl.isEmpty()) {
             return returnData.setErrorMsg("请输入书籍链接")
         }
-        var userNameSpace = getUserNameSpace(context)
+        if (positionProvided != positionTypeProvided) {
+            return returnData.setErrorMsg("阅读位置和位置类型必须同时提供")
+        }
+        if (positionProvided && (position == null || positionType == null || !isValidBookProgressPosition(position, positionType))) {
+            return returnData.setErrorMsg("阅读位置信息不合法")
+        }
+        val userNameSpace = getUserNameSpace(context)
         // 看看有没有加入书架
-        var bookInfo = getShelfBookByURL(bookUrl, userNameSpace)
+        val shelfLock = shelfEditLocks.computeIfAbsent(userNameSpace) { Any() }
+        val shelfBookAndTime = synchronized(shelfLock) {
+            val shelfBook = getShelfBookByURL(bookUrl, userNameSpace)
+            shelfBook to shelfBook?.let {
+                nextBookProgressTime(
+                    getBookProgressClockKey(userNameSpace, bookUrl),
+                    it.durChapterTime
+                )
+            }
+        }
+        val bookInfo = shelfBookAndTime.first
         if (bookInfo == null || bookInfo.origin.isNullOrEmpty()) {
             return returnData.setErrorMsg("书籍未加入书架")
         }
-        var bookSource = getBookSourceStringBySourceURL(bookInfo.origin, userNameSpace)
+        val progressTime = shelfBookAndTime.second
+            ?: nextBookProgressTime(
+                getBookProgressClockKey(userNameSpace, bookUrl),
+                bookInfo.durChapterTime
+            )
+        val bookSource = getBookSourceStringBySourceURL(bookInfo.origin, userNameSpace)
 
         if (!bookInfo.isLocalBook() && bookSource.isNullOrEmpty()) {
             return returnData.setErrorMsg("未配置书源")
         }
-        var chapterList = getLocalChapterList(bookInfo, bookSource ?: "", false, userNameSpace)
-        if (chapterIndex >= chapterList.size) {
+        val chapterList = getLocalChapterList(bookInfo, bookSource ?: "", false, userNameSpace)
+        if (chapterIndex !in chapterList.indices) {
             return returnData.setErrorMsg("章节不存在")
         }
-        var chapterInfo = chapterList.get(chapterIndex)
+        val chapterInfo = chapterList[chapterIndex]
         // 书架书籍保存阅读进度
-        saveShelfBookProgress(bookInfo, chapterInfo, userNameSpace)
+        val updatedBook = saveShelfBookProgress(
+            bookInfo,
+            chapterInfo,
+            userNameSpace,
+            if (positionProvided) position else null,
+            if (positionTypeProvided) positionType else null,
+            progressTime
+        ) ?: return returnData.setErrorMsg("书籍未加入书架")
         // 保存到 webdav
-        saveBookProgressToWebdav(bookInfo, chapterInfo, userNameSpace)
-        return returnData.setData("")
+        saveBookProgressToWebdav(updatedBook, userNameSpace)
+        return returnData.setData(getBookProgressResponse(updatedBook))
     }
 
     suspend fun getBookContent(context: RoutingContext): ReturnData {
@@ -697,9 +980,24 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
         var chapterInfo: BookChapter? = null
         var nextChapterUrl: String? = null
         var refreshChapterList = false
+        var progressTime: Long? = null
         if (!bookUrl.isNullOrEmpty()) {
             // 看看有没有加入书架
-            bookInfo = getShelfBookByURL(bookUrl, userNameSpace)
+            val shelfLock = shelfEditLocks.computeIfAbsent(userNameSpace) { Any() }
+            val shelfBookAndTime = synchronized(shelfLock) {
+                val shelfBook = getShelfBookByURL(bookUrl, userNameSpace)
+                val shelfProgressTime = if (shelfBook != null && cache != 1) {
+                    nextBookProgressTime(
+                        getBookProgressClockKey(userNameSpace, bookUrl),
+                        shelfBook.durChapterTime
+                    )
+                } else {
+                    null
+                }
+                shelfBook to shelfProgressTime
+            }
+            bookInfo = shelfBookAndTime.first
+            progressTime = shelfBookAndTime.second
             if (bookInfo != null && !bookInfo.origin.isNullOrEmpty()) {
                 isInBookShelf = true
                 bookSource = getBookSourceStringBySourceURL(bookInfo.origin, userNameSpace)
@@ -725,9 +1023,20 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
                     chapterInfo = chapterList.get(chapterIndex)
                     // 书架书籍保存阅读进度
                     if (isInBookShelf && cache != 1) {
-                        saveShelfBookProgress(bookInfo, chapterInfo, userNameSpace)
-                        // 保存到 webdav
-                        saveBookProgressToWebdav(bookInfo, chapterInfo, userNameSpace)
+                        val updatedBook = saveShelfBookProgress(
+                            bookInfo,
+                            chapterInfo,
+                            userNameSpace,
+                            progressTime = progressTime
+                                ?: nextBookProgressTime(
+                                    getBookProgressClockKey(userNameSpace, bookUrl),
+                                    bookInfo.durChapterTime
+                                )
+                        )
+                        if (updatedBook != null) {
+                            // 保存到 webdav
+                            saveBookProgressToWebdav(updatedBook, userNameSpace)
+                        }
                     }
                     chapterUrl = chapterInfo.url
                     if (chapterIndex + 1 < chapterList.size) {
@@ -1447,26 +1756,20 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
         if (book.bookUrl.isNullOrEmpty()) {
             return returnData.setErrorMsg("书籍链接不能为空")
         }
+        val bookIdentityName = book.name
+        val bookIdentityAuthor = book.author
         var userNameSpace = getUserNameSpace(context)
-        var bookshelf: JsonArray? = asJsonArray(getUserStorage(userNameSpace, "bookshelf"))
-        if (bookshelf == null) {
-            bookshelf = JsonArray()
-        }
-
-        // 遍历判断书本是否存在
-        var existIndex: Int = -1
-        for (i in 0 until bookshelf.size()) {
-            var _book = bookshelf.getJsonObject(i).mapTo(Book::class.java)
-            if (_book.name.equals(book.name) && _book.author.equals(book.author)) {
-                existIndex = i
-                break;
+        val shelfLock = shelfEditLocks.computeIfAbsent(userNameSpace) { Any() }
+        val hasShelfCapacity = synchronized(shelfLock) {
+            val currentBookshelf = asJsonArray(getUserStorage(userNameSpace, "bookshelf")) ?: JsonArray()
+            val bookExists = (0 until currentBookshelf.size()).any { index ->
+                val shelfBook = currentBookshelf.getJsonObject(index).mapTo(Book::class.java)
+                shelfBook.name == bookIdentityName && shelfBook.author == bookIdentityAuthor
             }
+            bookExists || currentBookshelf.size() < appConfig.userBookLimit
         }
-        if (existIndex < 0) {
-            // 判断书籍是否超过限制
-            if (bookshelf.size() >= appConfig.userBookLimit) {
-                return returnData.setErrorMsg("超过用户书籍数上限")
-            }
+        if (!hasShelfCapacity) {
+            return returnData.setErrorMsg("超过用户书籍数上限")
         }
         // 导入本地书籍
         if (book.isLocalBook()) {
@@ -1556,24 +1859,41 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
         }
         book = mergeBookCacheInfo(book)
 
-        if (existIndex >= 0) {
-            var bookList = bookshelf.getList()
-            var existBook = bookshelf.getJsonObject(existIndex).mapTo(Book::class.java)
-            book.durChapterIndex = existBook.durChapterIndex
-            book.durChapterTitle = existBook.durChapterTitle
-            book.durChapterTime = existBook.durChapterTime
-
-            bookList.set(existIndex, JsonObject.mapFrom(book))
-            bookshelf = JsonArray(bookList)
-        } else {
-            bookshelf.add(JsonObject.mapFrom(book))
-        }
+        val savedBook = synchronized(shelfLock) {
+            val latestBookshelf = asJsonArray(getUserStorage(userNameSpace, "bookshelf")) ?: JsonArray()
+            var latestExistIndex = -1
+            for (i in 0 until latestBookshelf.size()) {
+                val shelfBook = latestBookshelf.getJsonObject(i).mapTo(Book::class.java)
+                if (shelfBook.name == bookIdentityName && shelfBook.author == bookIdentityAuthor) {
+                    latestExistIndex = i
+                    break
+                }
+            }
+            if (latestExistIndex < 0 && latestBookshelf.size() >= appConfig.userBookLimit) {
+                null
+            } else {
+                if (latestExistIndex >= 0) {
+                    val latestBook = latestBookshelf.getJsonObject(latestExistIndex).mapTo(Book::class.java)
+                    book.durChapterIndex = latestBook.durChapterIndex
+                    book.durChapterTitle = latestBook.durChapterTitle
+                    book.durChapterPos = latestBook.durChapterPos
+                    book.durChapterPositionType = latestBook.durChapterPositionType
+                    book.durChapterTime = latestBook.durChapterTime
+                    val bookList = latestBookshelf.getList()
+                    bookList.set(latestExistIndex, JsonObject.mapFrom(book))
+                    saveUserStorage(userNameSpace, "bookshelf", JsonArray(bookList))
+                } else {
+                    latestBookshelf.add(JsonObject.mapFrom(book))
+                    saveUserStorage(userNameSpace, "bookshelf", latestBookshelf)
+                }
+                book
+            }
+        } ?: return returnData.setErrorMsg("超过用户书籍数上限")
+        book = savedBook
         // 保存书源信息
         val sourceList = listOf(book.toSearchBook())
         saveBookSources(book, sourceList, userNameSpace)
 
-        // logger.info("bookshelf: {}", bookshelf)
-        saveUserStorage(userNameSpace, "bookshelf", bookshelf)
         return returnData.setData(book)
     }
 
@@ -1780,33 +2100,22 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
         if (!checkAuth(context)) {
             return returnData.setData("NEED_LOGIN").setErrorMsg("请登录后使用")
         }
-        var book = context.bodyAsJson.mapTo(Book::class.java)
-        var userNameSpace = getUserNameSpace(context)
-        var bookshelf: JsonArray? = asJsonArray(getUserStorage(userNameSpace, "bookshelf"))
-        if (bookshelf == null) {
-            bookshelf = JsonArray()
-        }
-        // 遍历判断书本是否存在
-        var existIndex: Int = -1
-        for (i in 0 until bookshelf.size()) {
-            var _book = bookshelf.getJsonObject(i).mapTo(Book::class.java)
-            if (_book.bookUrl.equals(book.bookUrl)) {
-                existIndex = i
-                book = _book
-                break;
+        val requestBook = context.bodyAsJson.mapTo(Book::class.java)
+        val userNameSpace = getUserNameSpace(context)
+        val shelfLock = shelfEditLocks.computeIfAbsent(userNameSpace) { Any() }
+        val book = synchronized(shelfLock) {
+            val bookshelf = asJsonArray(getUserStorage(userNameSpace, "bookshelf")) ?: JsonArray()
+            val shelfBooks = (0 until bookshelf.size()).map { index ->
+                bookshelf.getJsonObject(index).mapTo(Book::class.java)
             }
-            if (_book.name.equals(book.name) && _book.author.equals(book.author)) {
-                existIndex = i
-                book = _book
-                break;
+            val existIndex = findShelfBookIndex(shelfBooks, requestBook, true)
+            val existBook = shelfBooks.getOrNull(existIndex)
+            if (existIndex >= 0) {
+                bookshelf.remove(existIndex)
+                saveUserStorage(userNameSpace, "bookshelf", bookshelf)
             }
-        }
-        if (existIndex < 0) {
-            return returnData.setErrorMsg("书架书籍不存在")
-        }
-        bookshelf.remove(existIndex)
-        // logger.info("bookshelf: {}", bookshelf)
-        saveUserStorage(userNameSpace, "bookshelf", bookshelf)
+            existBook
+        } ?: return returnData.setErrorMsg("书架书籍不存在")
 
         // 删除书籍目录
         val localBookPath = File(getWorkDir("storage", "data", userNameSpace, book.name + "_" + book.author))
@@ -1822,37 +2131,30 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
         }
         val bookJsonArray = context.bodyAsJsonArray
 
-        var userNameSpace = getUserNameSpace(context)
-        var bookshelf: JsonArray? = asJsonArray(getUserStorage(userNameSpace, "bookshelf"))
-        if (bookshelf == null) {
-            bookshelf = JsonArray()
+        val userNameSpace = getUserNameSpace(context)
+        val shelfLock = shelfEditLocks.computeIfAbsent(userNameSpace) { Any() }
+        val removedBooks = synchronized(shelfLock) {
+            val bookshelf = asJsonArray(getUserStorage(userNameSpace, "bookshelf")) ?: JsonArray()
+            val books = arrayListOf<Book>()
+            for (k in 0 until bookJsonArray.size()) {
+                val requestBook = bookJsonArray.getJsonObject(k).mapTo(Book::class.java)
+                val shelfBooks = (0 until bookshelf.size()).map { index ->
+                    bookshelf.getJsonObject(index).mapTo(Book::class.java)
+                }
+                val existIndex = findShelfBookIndex(shelfBooks, requestBook, true)
+                val existBook = shelfBooks.getOrNull(existIndex)
+                if (existIndex >= 0 && existBook != null) {
+                    bookshelf.remove(existIndex)
+                    books.add(existBook)
+                }
+            }
+            saveUserStorage(userNameSpace, "bookshelf", bookshelf)
+            books
         }
-        for (k in 0 until bookJsonArray.size()) {
-            var book = bookJsonArray.getJsonObject(k).mapTo(Book::class.java)
-            // 遍历判断书本是否存在
-            var existIndex: Int = -1
-            for (i in 0 until bookshelf.size()) {
-                var _book = bookshelf.getJsonObject(i).mapTo(Book::class.java)
-                if (_book.bookUrl.equals(book.bookUrl)) {
-                    existIndex = i
-                    book = _book
-                    break;
-                }
-                if (_book.name.equals(book.name) && _book.author.equals(book.author)) {
-                    existIndex = i
-                    book = _book
-                    break;
-                }
-            }
-            if (existIndex >= 0) {
-                bookshelf.remove(existIndex)
-            }
-            // 删除书籍目录
+        removedBooks.forEach { book ->
             val localBookPath = File(getWorkDir("storage", "data", userNameSpace, book.name + "_" + book.author))
             localBookPath.deleteRecursively()
         }
-
-        saveUserStorage(userNameSpace, "bookshelf", bookshelf)
         return returnData.setData("")
     }
 
@@ -2185,14 +2487,20 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
         return null
     }
 
-    fun saveShelfBookProgress(book: Book, bookChapter: BookChapter, userNameSpace: String) {
-        editShelfBook(book, userNameSpace) { existBook ->
-            existBook.durChapterIndex = bookChapter.index
-            existBook.durChapterTitle = bookChapter.title
-            existBook.durChapterTime = System.currentTimeMillis()
-
-            // logger.info("saveShelfBookProgress: {}", existBook)
-
+    fun saveShelfBookProgress(
+        book: Book,
+        bookChapter: BookChapter,
+        userNameSpace: String,
+        position: Int? = null,
+        positionType: String? = null,
+        progressTime: Long = System.currentTimeMillis()
+    ): Book? {
+        return editShelfBook(book, userNameSpace, false) { existBook ->
+            // A slower, older request must not overwrite a request received later.
+            if (!isPlausibleBookProgressTime(existBook.durChapterTime) ||
+                progressTime > existBook.durChapterTime) {
+                applyBookProgress(existBook, bookChapter, position, positionType, progressTime)
+            }
             existBook
         }
     }
@@ -2220,36 +2528,34 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
         }
     }
 
-    fun editShelfBook(book: Book, userNameSpace: String, handler: (Book)->Book) {
-        var bookshelf: JsonArray? = asJsonArray(getUserStorage(userNameSpace, "bookshelf"))
-        if (bookshelf == null) {
-            bookshelf = JsonArray()
-        }
-        // 遍历判断书本是否存在
-        var existIndex: Int = -1
-        for (i in 0 until bookshelf.size()) {
-            var _book = bookshelf.getJsonObject(i).mapTo(Book::class.java)
-            // 根据书籍链接查找
-            if (book.bookUrl.isNotEmpty() && _book.bookUrl.equals(book.bookUrl)) {
-                existIndex = i
-                break;
+    fun editShelfBook(
+        book: Book,
+        userNameSpace: String,
+        allowNameAuthorFallback: Boolean = true,
+        handler: (Book)->Book
+    ): Book? {
+        val lock = shelfEditLocks.computeIfAbsent(userNameSpace) { Any() }
+        return synchronized(lock) {
+            val bookshelf = asJsonArray(getUserStorage(userNameSpace, "bookshelf"))
+                ?: JsonArray()
+            val shelfBooks = (0 until bookshelf.size()).map { index ->
+                bookshelf.getJsonObject(index).mapTo(Book::class.java)
             }
-            // 根据作者和书名查找
-            if (book.name.isNotEmpty() && _book.name.equals(book.name) && book.author.isNotEmpty() && _book.author.equals(book.author)) {
-                existIndex = i
-                break;
+            val existIndex = findShelfBookIndex(
+                shelfBooks,
+                book,
+                allowNameAuthorFallback
+            )
+            if (existIndex >= 0) {
+                val bookList = bookshelf.getList()
+                val existBook = handler(bookshelf.getJsonObject(existIndex).mapTo(Book::class.java))
+
+                bookList.set(existIndex, JsonObject.mapFrom(existBook))
+                saveUserStorage(userNameSpace, "bookshelf", JsonArray(bookList))
+                existBook
+            } else {
+                null
             }
-        }
-        if (existIndex >= 0) {
-            var bookList = bookshelf.getList()
-            var existBook = bookshelf.getJsonObject(existIndex).mapTo(Book::class.java)
-            existBook = handler(existBook)
-
-            // logger.info("editShelfBook: {}", existBook)
-
-            bookList.set(existIndex, JsonObject.mapFrom(existBook))
-            bookshelf = JsonArray(bookList)
-            saveUserStorage(userNameSpace, "bookshelf", bookshelf)
         }
     }
 
@@ -2329,7 +2635,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
         return true
     }
 
-    suspend fun syncBookProgressFromWebdav(progressFilePath: Any, userNameSpace: String) {
+    fun syncBookProgressFromWebdav(progressFilePath: Any, userNameSpace: String) {
         var progressFile: File? = null
         when (progressFilePath) {
             is File -> progressFile = progressFilePath
@@ -2338,21 +2644,21 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
         if (progressFile == null) {
             return
         }
-        var book = asJsonObject(progressFile.readText())?.mapTo(Book::class.java)
-        if (book != null) {
-            editShelfBook(book, userNameSpace) { existBook ->
-                existBook.durChapterIndex = book.durChapterIndex
-                existBook.durChapterPos = book.durChapterPos
-                existBook.durChapterTime = book.durChapterTime
-                existBook.durChapterTitle = book.durChapterTitle
+        val progressJson = runCatching { asJsonObject(progressFile.readText()) }.getOrNull() ?: return
+        val book = parseWebdavBookProgress(progressJson) ?: return
+        syncBookProgressFromWebdav(book, userNameSpace)
+    }
 
+    fun syncBookProgressFromWebdav(book: Book, userNameSpace: String) {
+        editShelfBook(book, userNameSpace, book.bookUrl.isEmpty()) { existBook ->
+            if (applyBookProgressFromWebdav(existBook, book)) {
                 logger.info("syncShelfBookProgress: {}", existBook)
-                existBook
             }
+            existBook
         }
     }
 
-    suspend fun saveBookProgressToWebdav(book: Book, bookChapter: BookChapter, userNameSpace: String) {
+    suspend fun saveBookProgressToWebdav(book: Book, userNameSpace: String) {
         val userHome = getUserWebdavHome(userNameSpace)
         var bookProgressDir = File(userHome + File.separator + "bookProgress")
         if (!bookProgressDir.exists()) {
@@ -2361,15 +2667,98 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
                 return
             }
         }
-        var progressFile = File(bookProgressDir.toString() + File.separator + book.name + "_" + book.author + ".json")
-        progressFile.writeText(jsonEncode(mapOf(
-            "name" to book.name,
-            "author" to book.author,
-            "durChapterIndex" to bookChapter.index,
-            "durChapterPos" to 0,
-            "durChapterTime" to System.currentTimeMillis(),
-            "durChapterTitle" to bookChapter.title
-        ), true))
+        val progressFile = File(bookProgressDir.toString() + File.separator + book.name + "_" + book.author + ".json")
+        val lock = shelfEditLocks.computeIfAbsent(userNameSpace) { Any() }
+        synchronized(lock) {
+            val bookProgressTime = parsePlausibleBookProgressTime(
+                book.durChapterTime
+            ) ?: return@synchronized
+            val storedProgressTime = if (progressFile.exists()) {
+                runCatching {
+                    parsePlausibleBookProgressTime(
+                        asJsonObject(progressFile.readText())?.getValue("durChapterTime")
+                    )
+                }.getOrNull()
+            } else {
+                null
+            }
+            if (storedProgressTime != null && storedProgressTime > bookProgressTime) {
+                return@synchronized
+            }
+            val progressJson = jsonEncode(mapOf(
+                "bookUrl" to book.bookUrl,
+                "name" to book.name,
+                "author" to book.author,
+                "durChapterIndex" to book.durChapterIndex,
+                "durChapterPos" to book.durChapterPos,
+                "durChapterPositionType" to book.durChapterPositionType,
+                "durChapterTime" to bookProgressTime,
+                "durChapterTitle" to book.durChapterTitle
+            ), true)
+            writeBytesAtomically(
+                progressFile,
+                progressJson.toByteArray(Charsets.UTF_8)
+            )
+        }
+    }
+
+    private fun restoreBookshelfPreservingNewerProgress(
+        incomingBookshelf: JsonArray,
+        userNameSpace: String
+    ) {
+        val shelfLock = shelfEditLocks.computeIfAbsent(userNameSpace) { Any() }
+        synchronized(shelfLock) {
+            val currentBookshelf = asJsonArray(
+                getUserStorage(userNameSpace, "bookshelf")
+            ) ?: JsonArray()
+            val incomingBookList = incomingBookshelf.getList()
+            for (i in 0 until incomingBookshelf.size()) {
+                val incomingBookJson = incomingBookshelf.getJsonObject(i)
+                val incomingBook = incomingBookJson.mapTo(Book::class.java)
+                incomingBook.durChapterTime = parseImportedBookProgressTime(
+                    incomingBookJson.getValue("durChapterTime")
+                ) ?: 0
+                if (incomingBook.durChapterIndex < 0 ||
+                    incomingBook.durChapterPos < 0 ||
+                    (incomingBook.durChapterPositionType != null &&
+                        !isValidBookProgressPosition(
+                            incomingBook.durChapterPos,
+                            incomingBook.durChapterPositionType!!
+                        ))) {
+                    incomingBook.durChapterIndex = 0
+                    incomingBook.durChapterPos = 0
+                    incomingBook.durChapterPositionType = null
+                    incomingBook.durChapterTitle = null
+                    incomingBook.durChapterTime = 0
+                }
+                var exactBook: Book? = null
+                var fallbackBook: Book? = null
+                for (j in 0 until currentBookshelf.size()) {
+                    val currentBook = currentBookshelf.getJsonObject(j).mapTo(Book::class.java)
+                    if (incomingBook.bookUrl.isNotEmpty() &&
+                        currentBook.bookUrl == incomingBook.bookUrl) {
+                        exactBook = currentBook
+                        break
+                    }
+                    if (fallbackBook == null && incomingBook.name.isNotEmpty() &&
+                        currentBook.name == incomingBook.name &&
+                        incomingBook.author.isNotEmpty() &&
+                        currentBook.author == incomingBook.author) {
+                        fallbackBook = currentBook
+                    }
+                }
+                val currentBook = exactBook ?: fallbackBook
+                if (currentBook != null) {
+                    preserveNewerBookProgress(currentBook, incomingBook)
+                }
+                incomingBookList.set(i, JsonObject.mapFrom(incomingBook))
+            }
+            saveUserStorage(
+                userNameSpace,
+                "bookshelf",
+                JsonArray(incomingBookList)
+            )
+        }
     }
 
     suspend fun syncFromWebdav(zipFilePath: String, userNameSpace: String): Boolean {
@@ -2400,9 +2789,16 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
                 // 同步 书架
                 val bookshelfFile = File(descDir + File.separator + "bookshelf.json")
                 if (bookshelfFile.exists()) {
-                    val userBookSourceFile = File(getWorkDir("storage", "data", userNameSpace, "bookshelf.json"))
-                    userBookSourceFile.deleteRecursively()
-                    bookshelfFile.renameTo(userBookSourceFile)
+                    val incomingBookshelf = runCatching {
+                        asJsonArray(bookshelfFile.readText())
+                    }.getOrNull()
+                    if (incomingBookshelf != null) {
+                        restoreBookshelfPreservingNewerProgress(
+                            incomingBookshelf,
+                            userNameSpace
+                        )
+                    }
+                    bookshelfFile.deleteRecursively()
                 }
                 // 同步 书籍分组
                 val bookGroupFile = File(descDir + File.separator + "bookGroup.json")
@@ -2649,10 +3045,23 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
                 }
                 val sourceFile = File(descDirFile, fileName)
                 if (sourceFile.exists() && sourceFile.isFile) {
-                    val targetFile = File(userDataDir, fileName)
-                    targetFile.deleteRecursively()
-                    sourceFile.copyRecursively(targetFile, true)
-                    restoredFiles.add(fileName)
+                    if (storageName == "bookshelf") {
+                        val incomingBookshelf = runCatching {
+                            asJsonArray(sourceFile.readText())
+                        }.getOrNull()
+                        if (incomingBookshelf != null) {
+                            restoreBookshelfPreservingNewerProgress(
+                                incomingBookshelf,
+                                userNameSpace
+                            )
+                            restoredFiles.add(fileName)
+                        }
+                    } else {
+                        val targetFile = File(userDataDir, fileName)
+                        targetFile.deleteRecursively()
+                        sourceFile.copyRecursively(targetFile, true)
+                        restoredFiles.add(fileName)
+                    }
                 }
             }
             if (restoredFiles.isEmpty()) {

@@ -556,6 +556,7 @@
             @iframeLoad="$emit('iframeLoad')"
             @contentChange="computePages()"
             @epubClick="eventHandler"
+            @epubBeforeLocationChange="epubBeforeLocationChangeHandler"
             @epubLocationChange="epubLocationChangeHandler"
             @epubClickHash="epubClickHash"
             @epubKeydown="keydownHandler($event, true)"
@@ -600,6 +601,17 @@ import { applyReplaceRulesToText } from "../plugins/replace-rule";
 import eventBus from "../plugins/eventBus";
 // eslint-disable-next-line no-useless-escape
 const symboRegex = /[\u2000-\u206F\u2E00-\u2E7F\\'!"#$%&\(\)*+,-\./:;<=>?@\[\]^_`{\|}~，。？《》；：、«]/g;
+const readingPositionTypes = Object.freeze({
+  text: "textOffset",
+  ratio: "chapterRatio",
+  audio: "audioSeconds"
+});
+const readingPositionTypeList = Object.keys(readingPositionTypes).map(
+  key => readingPositionTypes[key]
+);
+const readingPositionRatioScale = 1000000;
+const readingPositionDebounce = 1000;
+const readingPositionMaxWait = 10000;
 
 export default {
   components: {
@@ -619,7 +631,12 @@ export default {
         window.speechSynthesis.onvoiceschanged = this.fetchVoiceList;
       }
     }
-    window.addEventListener("unload", this.saveReadingPosition);
+    window.addEventListener("pagehide", this.pageHideHandler);
+    window.addEventListener("online", this.retryPendingReadingProgress);
+    document.addEventListener(
+      "visibilitychange",
+      this.readingVisibilityChangeHandler
+    );
     eventBus.$on("showSearchContent", data => {
       if (this._inactive) {
         return;
@@ -702,9 +719,18 @@ export default {
     document.addEventListener("touchstart", this.selectionOutsideHandler, true);
     window.addEventListener("resize", this.hideSelectionToolbar);
   },
+  beforeRouteLeave(to, from, next) {
+    this.prepareToLeaveReader();
+    next();
+  },
   deactivated() {
-    this.saveBookProgress();
-    this.startSavePosition = false;
+    this.prepareToLeaveReader();
+    this.readingProgressInitId++;
+    if (this.scrollTimer) {
+      clearTimeout(this.scrollTimer);
+      this.scrollTimer = null;
+    }
+    this.visualRestoreUntil = 0;
     this.lastReadingBook = this.$store.getters.readingBook;
     if (this.selectionCheckTimer) {
       clearTimeout(this.selectionCheckTimer);
@@ -728,6 +754,15 @@ export default {
     this.unwatchFn && this.unwatchFn();
     this.releaseWakeLockFn && this.releaseWakeLockFn();
     this.$Lazyload.$off("loaded", this.lazyloadHandler);
+  },
+  beforeDestroy() {
+    window.removeEventListener("pagehide", this.pageHideHandler);
+    window.removeEventListener("online", this.retryPendingReadingProgress);
+    document.removeEventListener(
+      "visibilitychange",
+      this.readingVisibilityChangeHandler
+    );
+    this.clearReadingProgressTimers();
   },
   watch: {
     chapterName(to) {
@@ -797,24 +832,19 @@ export default {
         this.showToolBar = false;
       }
     },
-    readingBook(val, oldVal) {
-      if (val.bookUrl !== oldVal.bookUrl) {
-        this.startSavePosition = false;
-        this.autoShowPosition();
-      }
-    },
     currentPage(val, oldVal) {
+      const readingBook = this.$store.getters.readingBook || {};
+      const catalog = Array.isArray(readingBook.catalog)
+        ? readingBook.catalog
+        : [];
       // 还剩两页的时候，预读下一章节
       if (val !== oldVal && val >= this.totalPages - 2) {
-        if (
-          this.$store.getters.readingBook.index <
-          this.$store.getters.readingBook.catalog.length - 1
-        ) {
+        if ((readingBook.index || 0) < catalog.length - 1) {
           if (!this.isScrollRead) {
             if (!this.preCaching) {
               this.preCaching = true;
               this.getBookContent(
-                this.$store.getters.readingBook.index + 1,
+                (readingBook.index || 0) + 1,
                 {
                   timeout: 30000,
                   silent: true
@@ -896,6 +926,16 @@ export default {
       },
 
       startSavePosition: false,
+      restoreReadingProgress: null,
+      pendingReadingProgress: null,
+      readingProgressQueue: {},
+      readingProgressSyncTimer: null,
+      readingProgressMaxTimer: null,
+      readingProgressRequest: null,
+      readingProgressCancelSource: null,
+      readingProgressInFlight: null,
+      readingProgressInitId: 0,
+      visualRestoreUntil: 0,
 
       showCacheContentZone: false,
       isCachingContent: false,
@@ -1229,8 +1269,327 @@ export default {
     }
   },
   methods: {
+    prepareToLeaveReader() {
+      if (!this.startSavePosition) {
+        return null;
+      }
+      const progress = this.saveReadingPosition({ immediate: true });
+      this.startSavePosition = false;
+      return progress;
+    },
     isEpubIframeContent(content) {
       return /^\/epub\/.*\.x?html?([?#].*)?$/i.test((content || "").trim());
+    },
+    isValidReadingPositionType(positionType) {
+      return readingPositionTypeList.indexOf(positionType) >= 0;
+    },
+    getReadingProgressCacheKey(book) {
+      book = book || this.$store.getters.readingBook || {};
+      return (
+        this.getReadingProgressCachePrefix(book.userName) +
+        encodeURIComponent(book.bookUrl || "")
+      );
+    },
+    getReadingProgressCachePrefix(userName) {
+      return (
+        "bookChapterProgress@" +
+        encodeURIComponent(
+          userName || this.$store.getters.currentUserName || "default"
+        ) +
+        "@"
+      );
+    },
+    getLegacyReadingProgressCacheKey(book) {
+      book = book || this.$store.getters.readingBook || {};
+      return "bookChapterProgress@" + book.name + "_" + book.author;
+    },
+    normalizeReadingProgress(progress, book) {
+      if (!progress || typeof progress !== "object") {
+        return null;
+      }
+      book = book || this.$store.getters.readingBook || {};
+      const chapterIndex = Number(
+        typeof progress.chapterIndex === "undefined"
+          ? typeof progress.durChapterIndex === "undefined"
+            ? progress.index
+            : progress.durChapterIndex
+          : progress.chapterIndex
+      );
+      const position = Number(
+        typeof progress.position === "undefined"
+          ? progress.durChapterPos
+          : progress.position
+      );
+      if (
+        !Number.isFinite(chapterIndex) ||
+        chapterIndex < 0 ||
+        !Number.isFinite(position) ||
+        position < 0
+      ) {
+        return null;
+      }
+      const rawPositionType =
+        progress.positionType || progress.durChapterPositionType || null;
+      if (
+        rawPositionType &&
+        !this.isValidReadingPositionType(rawPositionType)
+      ) {
+        return null;
+      }
+      if (
+        rawPositionType === readingPositionTypes.ratio &&
+        position > readingPositionRatioScale
+      ) {
+        return null;
+      }
+      if (progress.pending === true && !rawPositionType && !progress.legacy) {
+        return null;
+      }
+      return {
+        bookUrl: progress.bookUrl || progress.url || book.bookUrl || "",
+        userName:
+          progress.userName ||
+          book.userName ||
+          this.$store.getters.currentUserName ||
+          "default",
+        chapterIndex: Math.floor(chapterIndex),
+        chapterTitle: progress.chapterTitle || progress.durChapterTitle || "",
+        position: Math.floor(position),
+        positionType: this.isValidReadingPositionType(rawPositionType)
+          ? rawPositionType
+          : null,
+        updatedAt: Number(
+          typeof progress.updatedAt === "undefined"
+            ? progress.durChapterTime || 0
+            : progress.updatedAt || 0
+        ),
+        pending: progress.pending === true,
+        legacy: progress.legacy === true,
+        confirmed: progress.confirmed === true
+      };
+    },
+    getServerReadingProgress(book) {
+      book = book || this.$store.getters.readingBook || {};
+      if (
+        !book.bookUrl ||
+        typeof book.durChapterIndex === "undefined" ||
+        book.durChapterIndex === null
+      ) {
+        return null;
+      }
+      const progress = this.normalizeReadingProgress(book, book);
+      if (progress) {
+        progress.confirmed = true;
+      }
+      return progress;
+    },
+    getCachedReadingProgress(book) {
+      book = book || this.$store.getters.readingBook || {};
+      const cached = this.normalizeReadingProgress(
+        getCache(this.getReadingProgressCacheKey(book)),
+        book
+      );
+      if (cached && cached.bookUrl === book.bookUrl) {
+        return cached;
+      }
+      const legacyPosition = Number(
+        getCache(this.getLegacyReadingProgressCacheKey(book))
+      );
+      if (Number.isFinite(legacyPosition) && legacyPosition > 0) {
+        return {
+          bookUrl: book.bookUrl,
+          userName: this.$store.getters.currentUserName || "default",
+          chapterIndex: Math.max(
+            0,
+            Number(
+              typeof book.durChapterIndex === "undefined"
+                ? book.index || 0
+                : book.durChapterIndex
+            ) | 0
+          ),
+          chapterTitle: book.durChapterTitle || "",
+          position: Math.floor(legacyPosition),
+          positionType: null,
+          updatedAt: 0,
+          pending: true,
+          legacy: true,
+          confirmed: false
+        };
+      }
+      return null;
+    },
+    getPendingReadingProgressList() {
+      if (!window.localStorage) {
+        return [];
+      }
+      const userName = this.$store.getters.currentUserName || "default";
+      const prefix = this.getReadingProgressCachePrefix(userName);
+      const progressMap = {};
+      for (let i = 0; i < window.localStorage.length; i++) {
+        const key = window.localStorage.key(i);
+        if (!key || key.indexOf(prefix) !== 0) {
+          continue;
+        }
+        const progress = this.normalizeReadingProgress(getCache(key), {
+          userName
+        });
+        if (
+          progress &&
+          progress.userName === userName &&
+          progress.pending &&
+          !progress.legacy &&
+          progress.bookUrl
+        ) {
+          progressMap[progress.bookUrl] = progress;
+        }
+      }
+      return Object.keys(progressMap).map(bookUrl => progressMap[bookUrl]);
+    },
+    selectReadingProgress(serverProgress, localProgress) {
+      if (localProgress && localProgress.pending) {
+        if (
+          !localProgress.legacy ||
+          !serverProgress ||
+          (serverProgress.chapterIndex === localProgress.chapterIndex &&
+            serverProgress.position === 0 &&
+            !serverProgress.positionType)
+        ) {
+          return localProgress;
+        }
+      }
+      return serverProgress || localProgress || null;
+    },
+    setCachedReadingProgress(progress, pending, updatedAt) {
+      if (!progress || !progress.bookUrl) {
+        return;
+      }
+      setCache(this.getReadingProgressCacheKey(progress), {
+        bookUrl: progress.bookUrl,
+        userName:
+          progress.userName || this.$store.getters.currentUserName || "default",
+        chapterIndex: progress.chapterIndex,
+        chapterTitle: progress.chapterTitle || "",
+        position: progress.position,
+        positionType: progress.positionType,
+        updatedAt:
+          typeof updatedAt === "undefined"
+            ? progress.updatedAt || Date.now()
+            : updatedAt,
+        pending: pending === true,
+        confirmed: pending === true ? false : progress.confirmed === true
+      });
+    },
+    isReadingProgressEqual(left, right) {
+      return !!(
+        left &&
+        right &&
+        left.bookUrl === right.bookUrl &&
+        (left.userName || this.$store.getters.currentUserName) ===
+          (right.userName || this.$store.getters.currentUserName) &&
+        left.chapterIndex === right.chapterIndex &&
+        left.position === right.position &&
+        left.positionType === right.positionType
+      );
+    },
+    isBookInShelf(bookUrl) {
+      return this.$store.state.shelfBooks.some(
+        book => book.bookUrl === bookUrl
+      );
+    },
+    async loadLatestReadingProgress(bookUrl) {
+      let book = this.$store.getters.readingBook || {};
+      const progressUserName = this.$store.getters.currentUserName;
+      if (!bookUrl || book.bookUrl !== bookUrl) {
+        return null;
+      }
+      let shelfBook = this.$store.state.shelfBooks.find(
+        item => item.bookUrl === bookUrl
+      );
+      try {
+        const response = await Axios.get(this.api + "/getShelfBook", {
+          params: { url: bookUrl },
+          silent: true,
+          timeout: 3000
+        });
+        if (
+          response &&
+          response.data &&
+          response.data.isSuccess &&
+          response.data.data &&
+          progressUserName === this.$store.getters.currentUserName
+        ) {
+          shelfBook = response.data.data;
+          if (this.isBookInShelf(bookUrl)) {
+            this.$store.commit("updateShelfBook", shelfBook);
+          } else {
+            this.$store.commit(
+              "setShelfBooks",
+              this.$store.state.shelfBooks.concat([shelfBook])
+            );
+          }
+        }
+      } catch (error) {
+        // Reading can continue with the local shelf and pending progress.
+      }
+      if ((this.$store.getters.readingBook || {}).bookUrl !== bookUrl) {
+        return null;
+      }
+      if (progressUserName !== this.$store.getters.currentUserName) {
+        return null;
+      }
+      book = {
+        ...this.$store.getters.readingBook,
+        ...(shelfBook || {})
+      };
+      const serverProgress = shelfBook
+        ? this.getServerReadingProgress(book)
+        : null;
+      const localProgress = this.getCachedReadingProgress(book);
+      if (
+        localProgress &&
+        !localProgress.pending &&
+        !localProgress.legacy &&
+        !localProgress.confirmed &&
+        this.isBookInShelf(bookUrl)
+      ) {
+        localProgress.pending = true;
+        this.setCachedReadingProgress(
+          localProgress,
+          true,
+          localProgress.updatedAt
+        );
+      }
+      const selectedProgress =
+        localProgress && localProgress.pending
+          ? this.selectReadingProgress(serverProgress, localProgress)
+          : serverProgress && localProgress
+          ? serverProgress.updatedAt >= localProgress.updatedAt
+            ? serverProgress
+            : localProgress
+          : serverProgress || localProgress;
+      this.restoreReadingProgress = selectedProgress;
+      if (selectedProgress) {
+        this.$store.commit("setReadingBook", {
+          ...this.$store.getters.readingBook,
+          index: selectedProgress.chapterIndex
+        });
+        if (
+          !selectedProgress.pending &&
+          !selectedProgress.legacy &&
+          selectedProgress.confirmed
+        ) {
+          this.$store.commit("setReadingProgress", {
+            ...selectedProgress,
+            setCurrentIndex: true
+          });
+          this.setCachedReadingProgress(
+            selectedProgress,
+            false,
+            selectedProgress.updatedAt
+          );
+        }
+      }
+      return selectedProgress;
     },
     consumeReaderPanelQuery() {
       const panel = this.$route.query && this.$route.query.panel;
@@ -1253,14 +1612,39 @@ export default {
         })
         .catch(() => {});
     },
-    init(refresh) {
+    async init(refresh, refreshCatalog) {
       if (this.$store.getters.readingBook) {
+        const initialBook = this.$store.getters.readingBook;
+        if (!initialBook.bookUrl) {
+          this.$message.error("请在书架选择书籍");
+          return;
+        }
+        const hasCatalog = book =>
+          !!(book && Array.isArray(book.catalog) && book.catalog.length);
         if (
-          refresh ||
-          !this.lastReadingBook ||
-          this.lastReadingBook.bookUrl !==
-            this.$store.getters.readingBook.bookUrl
+          !hasCatalog(initialBook) &&
+          this.lastReadingBook &&
+          this.lastReadingBook.bookUrl === initialBook.bookUrl &&
+          hasCatalog(this.lastReadingBook)
         ) {
+          // The shelf writes a compact readingBook without catalog. Reuse the
+          // retained catalog when reopening the same book so progress and page
+          // navigation do not disappear while the existing content is reused.
+          this.$store.commit("setReadingBook", {
+            ...this.lastReadingBook,
+            ...initialBook,
+            catalog: this.lastReadingBook.catalog
+          });
+        }
+        const initId = ++this.readingProgressInitId;
+        const initialIndex = initialBook.index || 0;
+        const activeBook = this.$store.getters.readingBook;
+        let shouldReload =
+          refresh ||
+          !hasCatalog(activeBook) ||
+          !this.lastReadingBook ||
+          this.lastReadingBook.bookUrl !== activeBook.bookUrl;
+        if (shouldReload) {
           this.title = "";
           this.show = false;
           this.loading = this.$loading({
@@ -1270,45 +1654,76 @@ export default {
             spinner: "el-icon-loading",
             background: "rgba(0,0,0,0)"
           });
+        }
+        await this.loadLatestReadingProgress(initialBook.bookUrl);
+        this.retryPendingReadingProgress();
+        if (
+          initId !== this.readingProgressInitId ||
+          initialBook.bookUrl !==
+            (this.$store.getters.readingBook || {}).bookUrl
+        ) {
+          return;
+        }
+        const latestBook = this.$store.getters.readingBook;
+        shouldReload =
+          shouldReload ||
+          !hasCatalog(latestBook) ||
+          initialIndex !== (latestBook.index || 0);
+        if (shouldReload) {
+          if (!this.loading || !this.loading.visible) {
+            this.loading = this.$loading({
+              target: this.$refs.content,
+              lock: true,
+              text: "正在获取内容",
+              spinner: "el-icon-loading",
+              background: "rgba(0,0,0,0)"
+            });
+          }
           this.lastReadingBook = this.$store.getters.readingBook;
           // 跳转记住的位置
           this.autoShowPosition();
-          this.loadCatalog(false, true);
+          this.loadCatalog(!!refreshCatalog, true);
         } else {
+          this.startSavePosition = false;
           if (this.isScrollRead) {
             this.scrollStartChapterIndex = this.chapterIndex;
             this.showPrevChapterSize = 0;
-            this.computeShowChapterList().then(() => {
-              this.autoShowPosition(true);
-            });
-          } else if (this.isEpub) {
-            // 跳转记住的位置
-            this.autoShowPosition(true);
+            this.computeShowChapterList();
           } else {
-            this.startSavePosition = true;
+            this.autoShowPosition(true);
           }
-          setTimeout(() => {
-            // console.log("setReadingBook", this.lastReadingBook);
-            this.$store.commit("setReadingBook", this.lastReadingBook);
-          }, 100);
         }
       } else {
         this.$message.error("请在书架选择书籍");
       }
     },
     changeBook(book) {
+      this.saveReadingPosition({ immediate: true });
       this.$message.info("换书成功");
       this.popBookShelfVisible = false;
       this.show = false;
+      this.startSavePosition = false;
+      this.restoreReadingProgress = null;
       this.$store.commit("setReadingBook", book);
-      this.loadCatalog(true, true);
+      this.init(true);
     },
     changeBookSource() {
+      this.saveReadingPosition({ immediate: true });
       this.popBookSourceVisible = false;
       this.show = false;
+      this.startSavePosition = false;
+      this.restoreReadingProgress = null;
       this.tryRefresh = false;
       // TODO 使用相似度比较，校正章节index
-      this.loadCatalog(true, true);
+      this.init(true, true);
+    },
+    preserveCurrentReadingPosition() {
+      const progress = this.saveReadingPosition({ immediate: true });
+      this.startSavePosition = false;
+      if (progress) {
+        this.restoreReadingProgress = progress;
+      }
+      this.autoShowPosition();
     },
     loadCatalog(refresh, init) {
       if (!this.api) {
@@ -1319,14 +1734,38 @@ export default {
         }, 1000);
         return;
       }
+      if (refresh && this.startSavePosition && this.show) {
+        this.preserveCurrentReadingPosition();
+      }
       this.getCatalog(refresh).then(
         res => {
           if (res.data.isSuccess) {
             var book = Object.assign({}, this.$store.getters.readingBook);
             book.catalog = res.data.data;
+            if (!book.catalog.length) {
+              book.index = 0;
+            } else {
+              book.index = Math.min(
+                Math.max(Number(book.index) || 0, 0),
+                book.catalog.length - 1
+              );
+            }
             this.$store.commit("setReadingBook", book);
             this.$emit("loadCatalog");
-            var index = book.index || 0;
+            var index = book.index;
+            if (
+              this.restoreReadingProgress &&
+              this.restoreReadingProgress.chapterIndex !== index
+            ) {
+              this.restoreReadingProgress = {
+                ...this.restoreReadingProgress,
+                chapterIndex: index,
+                position: 0
+              };
+            }
+            this.scrollStartChapterIndex = index;
+            this.showPrevChapterSize = 0;
+            this.showNextChapterSize = 1;
             this.getContent(index);
           } else {
             if (init) {
@@ -1381,6 +1820,25 @@ export default {
       this.getContent(this.$store.getters.readingBook.index, true);
     },
     getContent(index, refresh) {
+      const changingChapter = index !== this.chapterIndex;
+      const refreshingChapter =
+        this.startSavePosition && !!refresh && index === this.chapterIndex;
+      if (changingChapter) {
+        if (this.startSavePosition) {
+          this.saveReadingPosition({ immediate: true });
+        }
+        this.startSavePosition = false;
+        this.readingProgressInitId++;
+        this.restoreReadingProgress = null;
+        this.$once("showContent", () => {
+          this.$nextTick(() => {
+            this.startSavePosition = true;
+            this.saveReadingPosition({ immediate: true });
+          });
+        });
+      } else if (refreshingChapter) {
+        this.preserveCurrentReadingPosition();
+      }
       //展示进度条
       this.show = false;
       if (!this.loading || !this.loading.visible) {
@@ -1423,7 +1881,6 @@ export default {
       let chapterName = this.$store.getters.readingBook.catalog[index].title;
       let chapterIndex = this.$store.getters.readingBook.catalog[index].index;
       this.title = chapterName;
-      const now = new Date().getTime();
       this.getBookContent(chapterIndex, {}, refresh).then(
         res => {
           if (
@@ -1432,10 +1889,6 @@ export default {
           ) {
             // 已经换书或者换章节了
             return;
-          }
-          if (now + 100 > new Date().getTime()) {
-            // 不超过 100ms 假定为获取缓存，此时发送进度保存请求
-            this.saveBookProgress();
           }
           if (res.data.isSuccess) {
             let data = res.data.data;
@@ -1572,7 +2025,6 @@ export default {
             content: "获取章节内容失败！\n" + (error && error.toString()),
             error: true
           });
-          throw error;
         }
       );
     },
@@ -1609,17 +2061,23 @@ export default {
       if (!this.isScrollRead) {
         return Promise.resolve();
       }
+      if (!this.catalog.length) {
+        return Promise.resolve();
+      }
       const list = [];
-      let startIndex = this.scrollStartChapterIndex || this.chapterIndex;
+      let startIndex = Number.isFinite(this.scrollStartChapterIndex)
+        ? this.scrollStartChapterIndex
+        : this.chapterIndex;
       if (this.config.readMethod === "上下滚动2") {
         startIndex = this.chapterIndex - this.showPrevChapterSize;
       }
+      startIndex = Math.max(0, startIndex);
+      const endIndex = Math.min(
+        this.catalog.length - 1,
+        this.chapterIndex + this.showNextChapterSize
+      );
       const waitPromise = [];
-      for (
-        let i = startIndex;
-        i <= this.chapterIndex + this.showNextChapterSize;
-        i++
-      ) {
+      for (let i = startIndex; i <= endIndex; i++) {
         if (!this.chapterContentCache.chapters[i]) {
           waitPromise.push(this.loadShowChapter(i));
           continue;
@@ -1633,7 +2091,7 @@ export default {
       }
       if (waitPromise.length) {
         return Promise.all(waitPromise).then(() => {
-          this.computeShowChapterList(reset);
+          return this.computeShowChapterList(reset);
         });
       }
       this.saveReadingPosition();
@@ -1641,40 +2099,346 @@ export default {
       this.startSavePosition = false;
       // 记录当前章节
       this.showChapterList = list;
-      this.$nextTick(() => {
-        this.computePages(() => {
-          if (reset) {
-            // 切换上下章节，滚动到顶部
-            this.toTop(0);
-            this.startSavePosition = true;
-          } else if (this.config.readMethod === "上下滚动2") {
-            this.autoShowPosition(true);
-          } else {
-            this.startSavePosition = true;
-          }
+      return new Promise(resolve => {
+        this.$nextTick(() => {
+          this.computePages(() => {
+            if (reset) {
+              // 切换上下章节，滚动到顶部
+              this.toTop(0, () => {
+                this.startSavePosition = true;
+                this.saveReadingPosition({ immediate: true });
+                resolve();
+              });
+              return;
+            } else if (
+              this.restoreReadingProgress &&
+              this.restoreReadingProgress.bookUrl ===
+                this.readingBook.bookUrl &&
+              this.restoreReadingProgress.chapterIndex === this.chapterIndex
+            ) {
+              this.autoShowPosition(true);
+            } else {
+              this.startSavePosition = true;
+            }
+            resolve();
+          });
         });
       });
     },
     saveBookProgress() {
-      return Axios.post(
-        this.api + "/saveBookProgress",
-        {
-          url: this.$store.getters.readingBook.bookUrl,
-          index: this.chapterIndex
-        },
-        {
-          silent: true
-        }
-      ).catch(() => {});
+      return this.saveReadingPosition({ immediate: true });
     },
-    toTop(interval) {
+    clearReadingProgressTimers() {
+      if (this.readingProgressSyncTimer) {
+        clearTimeout(this.readingProgressSyncTimer);
+        this.readingProgressSyncTimer = null;
+      }
+      if (this.readingProgressMaxTimer) {
+        clearTimeout(this.readingProgressMaxTimer);
+        this.readingProgressMaxTimer = null;
+      }
+    },
+    getReadingProgressQueueKey(progress) {
+      return progress
+        ? encodeURIComponent(
+            progress.userName || this.$store.getters.currentUserName
+          ) +
+            "@" +
+            encodeURIComponent(progress.bookUrl)
+        : "";
+    },
+    enqueueReadingProgress(progress) {
+      const key = this.getReadingProgressQueueKey(progress);
+      if (!key) {
+        return;
+      }
+      this.readingProgressQueue[key] = progress;
+      this.pendingReadingProgress = progress;
+    },
+    takeNextReadingProgress(skippedKeys) {
+      skippedKeys = skippedKeys || {};
+      const pendingKey = this.getReadingProgressQueueKey(
+        this.pendingReadingProgress
+      );
+      let key =
+        pendingKey &&
+        this.readingProgressQueue[pendingKey] &&
+        this.readingProgressQueue[pendingKey] !== skippedKeys[pendingKey]
+          ? pendingKey
+          : Object.keys(this.readingProgressQueue).find(
+              queueKey =>
+                this.readingProgressQueue[queueKey] !== skippedKeys[queueKey]
+            );
+      if (!key) {
+        return null;
+      }
+      const progress = this.readingProgressQueue[key];
+      delete this.readingProgressQueue[key];
+      const nextKey = Object.keys(this.readingProgressQueue)[0];
+      this.pendingReadingProgress = nextKey
+        ? this.readingProgressQueue[nextKey]
+        : null;
+      return progress;
+    },
+    scheduleReadingProgressSync(progress) {
+      if (!progress || !this.isBookInShelf(progress.bookUrl)) {
+        return;
+      }
+      this.enqueueReadingProgress(progress);
+      if (this.readingProgressSyncTimer) {
+        clearTimeout(this.readingProgressSyncTimer);
+      }
+      this.readingProgressSyncTimer = setTimeout(() => {
+        this.readingProgressSyncTimer = null;
+        this.flushReadingProgress();
+      }, readingPositionDebounce);
+      if (!this.readingProgressMaxTimer) {
+        this.readingProgressMaxTimer = setTimeout(() => {
+          this.readingProgressMaxTimer = null;
+          this.flushReadingProgress(true);
+        }, readingPositionMaxWait);
+      }
+    },
+    normalizeSavedReadingProgress(data, fallback) {
+      const progress = this.normalizeReadingProgress(data, {
+        bookUrl: (fallback || {}).bookUrl,
+        userName: (fallback || {}).userName
+      });
+      if (progress) {
+        return progress;
+      }
+      return fallback
+        ? {
+            ...fallback,
+            pending: false,
+            legacy: false,
+            confirmed: true,
+            updatedAt: Date.now()
+          }
+        : null;
+    },
+    async flushReadingProgress(immediate, skippedKeys) {
+      skippedKeys = skippedKeys || {};
+      if (immediate) {
+        this.clearReadingProgressTimers();
+      }
+      if (this.readingProgressRequest) {
+        return this.readingProgressRequest;
+      }
+      const progress = this.takeNextReadingProgress(skippedKeys);
+      if (!progress) {
+        return null;
+      }
+      if (
+        progress.userName !== this.$store.getters.currentUserName ||
+        !this.isBookInShelf(progress.bookUrl)
+      ) {
+        return this.flushReadingProgress(true, skippedKeys);
+      }
+      const payload = {
+        url: progress.bookUrl,
+        index: progress.chapterIndex,
+        position: progress.position,
+        positionType: progress.positionType
+      };
+      let requestFailed = false;
+      const cancelSource = Axios.createCancelTokenSource();
+      this.readingProgressCancelSource = cancelSource;
+      this.readingProgressInFlight = progress;
+      this.readingProgressRequest = Axios.post(
+        this.api + "/saveBookProgress",
+        payload,
+        { silent: true, cancelToken: cancelSource.token, timeout: 10000 }
+      )
+        .then(response => {
+          if (!response || !response.data || !response.data.isSuccess) {
+            throw new Error(
+              (response && response.data && response.data.errorMsg) ||
+                "保存阅读进度失败"
+            );
+          }
+          const confirmed = this.normalizeSavedReadingProgress(
+            response.data.data,
+            progress
+          );
+          if (confirmed) {
+            confirmed.userName = progress.userName;
+            confirmed.confirmed = true;
+            if (progress.userName === this.$store.getters.currentUserName) {
+              this.$store.commit("setReadingProgress", {
+                ...confirmed,
+                setCurrentIndex: false
+              });
+            }
+            const cached = this.getCachedReadingProgress({
+              bookUrl: progress.bookUrl,
+              userName: progress.userName
+            });
+            if (this.isReadingProgressEqual(cached, progress)) {
+              this.setCachedReadingProgress(
+                confirmed,
+                false,
+                confirmed.updatedAt
+              );
+            }
+          }
+          return confirmed;
+        })
+        .catch(() => {
+          requestFailed = true;
+          const failedKey = this.getReadingProgressQueueKey(progress);
+          if (!this.readingProgressQueue[failedKey]) {
+            this.enqueueReadingProgress(progress);
+          }
+          return null;
+        })
+        .finally(() => {
+          this.readingProgressRequest = null;
+          if (this.readingProgressCancelSource === cancelSource) {
+            this.readingProgressCancelSource = null;
+          }
+          if (this.readingProgressInFlight === progress) {
+            this.readingProgressInFlight = null;
+          }
+          const failedKey = this.getReadingProgressQueueKey(progress);
+          if (
+            requestFailed &&
+            this.readingProgressQueue[failedKey] === progress
+          ) {
+            skippedKeys[failedKey] = progress;
+          }
+          const queuedKeys = Object.keys(this.readingProgressQueue);
+          const nextKey = queuedKeys.find(
+            key => this.readingProgressQueue[key] !== skippedKeys[key]
+          );
+          if (nextKey) {
+            this.pendingReadingProgress = this.readingProgressQueue[nextKey];
+            this.flushReadingProgress(true, skippedKeys);
+          }
+        });
+      return this.readingProgressRequest;
+    },
+    retryPendingReadingProgress() {
+      this.getPendingReadingProgressList().forEach(progress => {
+        if (this.isBookInShelf(progress.bookUrl)) {
+          this.enqueueReadingProgress(progress);
+        }
+      });
+      if (Object.keys(this.readingProgressQueue).length) {
+        this.flushReadingProgress(true);
+      }
+    },
+    getReadingProgressBeaconUrl() {
+      const params = [];
+      if (this.$store.state.token) {
+        params.push(
+          "accessToken=" + encodeURIComponent(this.$store.state.token)
+        );
+      }
+      if (this.$store.state.isManagerMode && this.$store.state.secureKey) {
+        params.push(
+          "secureKey=" + encodeURIComponent(this.$store.state.secureKey)
+        );
+        params.push(
+          "userNS=" + encodeURIComponent(this.$store.state.userNS || "")
+        );
+      }
+      return (
+        this.api +
+        "/saveBookProgress" +
+        (params.length ? "?" + params.join("&") : "")
+      );
+    },
+    sendReadingProgressBeacon(progress) {
+      if (
+        !progress ||
+        progress.userName !== this.$store.getters.currentUserName ||
+        !this.isBookInShelf(progress.bookUrl)
+      ) {
+        return false;
+      }
+      const body = JSON.stringify({
+        url: progress.bookUrl,
+        index: progress.chapterIndex,
+        position: progress.position,
+        positionType: progress.positionType
+      });
+      const url = this.getReadingProgressBeaconUrl();
+      if (navigator.sendBeacon) {
+        try {
+          const queued = navigator.sendBeacon(
+            url,
+            new Blob([body], { type: "text/plain;charset=UTF-8" })
+          );
+          if (queued) {
+            return true;
+          }
+        } catch (error) {
+          // Fall through to a keepalive request.
+        }
+      }
+      if (window.fetch) {
+        try {
+          window.fetch(url, {
+            method: "POST",
+            body,
+            headers: { "Content-Type": "text/plain;charset=UTF-8" },
+            credentials: "include",
+            keepalive: true
+          });
+          return true;
+        } catch (error) {
+          return false;
+        }
+      }
+      return false;
+    },
+    readingVisibilityChangeHandler() {
+      if (document.visibilityState === "hidden") {
+        this.saveReadingPosition({ immediate: true });
+      } else {
+        this.retryPendingReadingProgress();
+      }
+    },
+    pageHideHandler() {
+      const inFlightProgress = this.readingProgressInFlight;
+      if (this.readingProgressCancelSource) {
+        this.readingProgressCancelSource.cancel("pagehide");
+      }
+      const currentProgress = this.saveReadingPosition({ beacon: true });
+      const currentKey = this.getReadingProgressQueueKey(currentProgress);
+      const additionalProgress = {};
+      [
+        inFlightProgress,
+        this.pendingReadingProgress,
+        ...Object.keys(this.readingProgressQueue).map(
+          key => this.readingProgressQueue[key]
+        )
+      ].forEach(progress => {
+        const key = this.getReadingProgressQueueKey(progress);
+        if (key && key !== currentKey) {
+          additionalProgress[key] = progress;
+        }
+      });
+      Object.keys(additionalProgress).forEach(key => {
+        this.sendReadingProgressBeacon(additionalProgress[key]);
+      });
+    },
+    toTop(interval, callback) {
+      if (interval === 0) {
+        document.documentElement.scrollTop = 0;
+        document.body.scrollTop = 0;
+        callback && callback();
+        return;
+      }
       if (this.$store.state.miniInterface) {
         this.scrollContent(
           -(document.documentElement.scrollTop || document.body.scrollTop),
           interval
         );
+        callback && callback();
       } else {
-        jump(this.$refs.top, { duration: interval });
+        jump(this.$refs.top, { duration: interval, callback });
       }
     },
     toBottom(interval) {
@@ -1695,8 +2459,7 @@ export default {
         typeof this.$store.getters.readingBook.catalog[index] !== "undefined"
       ) {
         if (this.isScrollRead) {
-          this.scrollStartChapterIndex = index;
-          this.computeShowChapterList(true);
+          this.changeScrollChapter(index);
           return;
         }
         this.getContent(index);
@@ -1720,8 +2483,7 @@ export default {
         typeof this.$store.getters.readingBook.catalog[index] !== "undefined"
       ) {
         if (this.isScrollRead) {
-          this.scrollStartChapterIndex = index;
-          this.computeShowChapterList(true);
+          this.changeScrollChapter(index);
           return;
         }
         this.getContent(index);
@@ -1730,7 +2492,29 @@ export default {
         onError && onError();
       }
     },
+    changeScrollChapter(index) {
+      const book = this.$store.getters.readingBook || {};
+      if (!book.bookUrl || !book.catalog || !book.catalog[index]) {
+        return Promise.resolve();
+      }
+      this.saveReadingPosition({ immediate: true });
+      this.startSavePosition = false;
+      this.readingProgressInitId++;
+      this.restoreReadingProgress = null;
+      this.$store.commit("setReadingBookIndex", {
+        bookUrl: book.bookUrl,
+        chapterIndex: index
+      });
+      this.title = book.catalog[index].title || this.title;
+      this.scrollStartChapterIndex = index;
+      this.showPrevChapterSize = 0;
+      this.showNextChapterSize = 1;
+      return this.computeShowChapterList(true);
+    },
     toShelf() {
+      // Save while the current EPUB iframe still has its original layout. Starting
+      // router navigation can reflow the iframe back to the top before leave hooks run.
+      this.prepareToLeaveReader();
       this.$router.push("/");
     },
     computePages(cb) {
@@ -2034,32 +2818,109 @@ export default {
         );
       }
     },
+    epubBeforeLocationChangeHandler() {
+      this.saveReadingPosition({ immediate: true });
+    },
     epubLocationChangeHandler(url) {
-      function getPathname(path) {
-        const a = document.createElement("a");
-        a.href = path;
-        return decodeURIComponent(a.pathname);
-      }
-      url = getPathname(url);
+      const normalizePath = path => {
+        let value = String(path || "");
+        if (/^(?:[a-z]+:)?\/\//i.test(value)) {
+          const anchor = document.createElement("a");
+          anchor.href = value;
+          value = anchor.pathname;
+        }
+        value = value.split("#")[0].split("?")[0];
+        try {
+          value = decodeURIComponent(value);
+        } catch (error) {
+          // Keep the original path when it contains malformed escapes.
+        }
+        return value.replace(/\\/g, "/").replace(/^\.\//, "");
+      };
+      const targetPath = normalizePath(url);
       // 判断是否跳转了其他章节
       const currentChapter = this.catalog[this.chapterIndex];
       if (currentChapter) {
-        const chapterPrefix = this.content.replace(currentChapter.url, "");
-        const iframeUrlPath = url.replace(chapterPrefix, "");
-        let newChapterIndex = -1;
+        const contentPath = normalizePath(this.content);
+        let chapterPrefix = "";
+        let longestContentMatch = "";
         for (let i = 0; i < this.catalog.length; i++) {
-          if (this.catalog[i].url === iframeUrlPath) {
+          const catalogPath = normalizePath(this.catalog[i].url).replace(
+            /^\/+/,
+            ""
+          );
+          if (
+            catalogPath.length > longestContentMatch.length &&
+            (contentPath === catalogPath ||
+              contentPath.endsWith("/" + catalogPath))
+          ) {
+            longestContentMatch = catalogPath;
+          }
+        }
+        if (longestContentMatch) {
+          chapterPrefix = contentPath.slice(
+            0,
+            contentPath.length - longestContentMatch.length
+          );
+        }
+        const iframeUrlPath =
+          chapterPrefix && targetPath.indexOf(chapterPrefix) === 0
+            ? targetPath.slice(chapterPrefix.length)
+            : targetPath.replace(/^\/+/, "");
+        let newChapterIndex = -1;
+        let longestTargetMatch = -1;
+        for (let i = 0; i < this.catalog.length; i++) {
+          const catalogPath = normalizePath(this.catalog[i].url).replace(
+            /^\/+/,
+            ""
+          );
+          if (catalogPath === iframeUrlPath.replace(/^\/+/, "")) {
             newChapterIndex = i;
             break;
           }
+          if (
+            catalogPath.length > longestTargetMatch &&
+            targetPath.endsWith("/" + catalogPath)
+          ) {
+            newChapterIndex = i;
+            longestTargetMatch = catalogPath.length;
+          }
         }
-        if (newChapterIndex >= 0) {
+        if (newChapterIndex >= 0 && newChapterIndex !== this.chapterIndex) {
+          const bookUrl = this.readingBook.bookUrl;
+          const initId = this.readingProgressInitId;
+          this.startSavePosition = false;
           let book = { ...this.$store.getters.readingBook };
           book.index = newChapterIndex;
           this.$store.commit("setReadingBook", book);
           this.title = this.$store.getters.readingBook.catalog[
             newChapterIndex
           ].title;
+          const progress = {
+            bookUrl,
+            userName: this.$store.getters.currentUserName || "default",
+            chapterIndex: newChapterIndex,
+            chapterTitle: this.title,
+            position: 0,
+            positionType: readingPositionTypes.ratio,
+            updatedAt: Date.now(),
+            pending: this.isBookInShelf(bookUrl),
+            legacy: false
+          };
+          this.restoreReadingProgress = progress;
+          this.$once("iframeLoad", () => {
+            if (
+              initId !== this.readingProgressInitId ||
+              bookUrl !== this.readingBook.bookUrl ||
+              newChapterIndex !== this.chapterIndex
+            ) {
+              return;
+            }
+            this.showVisualReadingPosition(progress, () => {
+              this.startSavePosition = true;
+              this.saveReadingPosition({ immediate: true });
+            });
+          });
         }
       }
     },
@@ -3013,6 +3874,29 @@ export default {
         this.toNextChapter();
       }
     },
+    getFirstVisibleReadingParagraph() {
+      if (!this.$refs.bookContentRef || !this.$refs.bookContentRef.$el) {
+        return null;
+      }
+      const list = this.$refs.bookContentRef.$el.querySelectorAll(
+        "h3[data-pos],p[data-pos]"
+      );
+      const viewportTop = this.getReadingViewportTop();
+      for (let i = 0; i < list.length; i++) {
+        const position = list[i].getBoundingClientRect();
+        if (this.isSlideRead) {
+          if (position.right > 0 && position.left < this.windowSize.width) {
+            return list[i];
+          }
+        } else if (
+          position.bottom > viewportTop &&
+          position.top < this.windowSize.height
+        ) {
+          return list[i];
+        }
+      }
+      return null;
+    },
     getCurrentParagraph() {
       const readingEle = this.$refs.bookContentRef.$el.querySelectorAll(
         ".reading"
@@ -3074,8 +3958,9 @@ export default {
       this.showReadBar = false;
       this.showParagraph(current);
     },
-    showParagraph(paragraph, scroll) {
+    showParagraph(paragraph, scroll, callback) {
       if (!paragraph) {
+        callback && callback();
         return;
       }
       if (this.isSlideRead) {
@@ -3088,6 +3973,7 @@ export default {
               0
             );
           }
+          callback && callback();
         });
       } else if (scroll) {
         // 跳转位置
@@ -3102,7 +3988,10 @@ export default {
               (this.$store.state.safeArea.top | 0),
             0
           );
+          callback && callback();
         });
+      } else {
+        callback && callback();
       }
     },
     getFirstParagraphPos() {
@@ -3162,138 +4051,457 @@ export default {
         }
       }
       this.lastScrollTop = scrollTop;
+      if (this.startSavePosition && !this.readingProgressMaxTimer) {
+        this.readingProgressMaxTimer = setTimeout(() => {
+          this.readingProgressMaxTimer = null;
+          if (this.scrollTimer) {
+            clearTimeout(this.scrollTimer);
+            this.scrollTimer = null;
+          }
+          this.saveReadingPosition({ immediate: true });
+        }, readingPositionMaxWait);
+      }
       this.scrollTimer && clearTimeout(this.scrollTimer);
       this.scrollTimer = setTimeout(this.saveReadingPosition, 100);
     },
     beforeReadMethodChange() {
       this.currentParagraph = this.getCurrentParagraph();
     },
-    // 只会在进入的时候调用
-    showPosition(pos, callback) {
+    getReadingViewportTop() {
+      let viewportTop =
+        (window.webAppDistance | 0) + (this.$store.state.safeArea.top | 0);
+      if (this.$store.state.miniInterface && this.$refs.top) {
+        viewportTop = Math.max(
+          viewportTop,
+          this.$refs.top.getBoundingClientRect().bottom
+        );
+      }
+      return Math.max(0, viewportTop);
+    },
+    getVisualChapterElement(chapterIndex, findVisible) {
+      const contentRef = this.$refs.bookContentRef;
+      if (!contentRef || !contentRef.$el) {
+        return null;
+      }
+      const root = contentRef.$el;
+      const chapterElements = root.querySelectorAll(".chapter-content");
+      if (chapterElements.length) {
+        if (typeof chapterIndex !== "undefined" && chapterIndex !== null) {
+          for (let i = 0; i < chapterElements.length; i++) {
+            if (
+              chapterElements[i].dataset &&
+              Number(chapterElements[i].dataset.index) === Number(chapterIndex)
+            ) {
+              return chapterElements[i];
+            }
+          }
+        }
+        if (findVisible) {
+          const viewportTop = this.getReadingViewportTop();
+          for (let i = 0; i < chapterElements.length; i++) {
+            if (
+              chapterElements[i].getBoundingClientRect().bottom > viewportTop
+            ) {
+              return chapterElements[i];
+            }
+          }
+        }
+        return chapterElements[0];
+      }
+      return root;
+    },
+    getVisualReadingPosition(chapterElement) {
+      const contentRef = this.$refs.bookContentRef;
+      if (!contentRef || !contentRef.$el) {
+        return 0;
+      }
+      if (this.isSlideRead && this.totalPages > 1) {
+        return Math.round(
+          ((Math.max(1, this.currentPage) - 1) /
+            Math.max(1, this.totalPages - 1)) *
+            readingPositionRatioScale
+        );
+      }
+      const rect = (chapterElement || contentRef.$el).getBoundingClientRect();
+      const viewportTop = this.getReadingViewportTop();
+      const viewportHeight = Math.max(
+        1,
+        this.windowSize.height -
+          viewportTop -
+          (this.$store.state.safeArea.bottom | 0)
+      );
+      const maxTravel = Math.max(0, rect.height - viewportHeight);
+      if (!maxTravel) {
+        return 0;
+      }
+      const ratio = Math.max(
+        0,
+        Math.min(1, (viewportTop - rect.top) / maxTravel)
+      );
+      return Math.round(ratio * readingPositionRatioScale);
+    },
+    captureReadingProgress() {
+      const book = this.$store.getters.readingBook || {};
+      if (!book.bookUrl) {
+        return null;
+      }
+      let chapterIndex = this.chapterIndex;
+      let position = 0;
+      let positionType = readingPositionTypes.text;
       if (this.isAudio) {
-        // seek
-        if (!this.$refs.bookContentRef) {
-          setTimeout(() => {
-            this.showPosition(pos, callback);
-          }, 10);
-          return;
+        positionType = readingPositionTypes.audio;
+        position = this.$refs.bookContentRef
+          ? Math.max(0, this.$refs.bookContentRef.currentTime | 0)
+          : 0;
+      } else if (
+        this.isEpub ||
+        this.isCarToon ||
+        this.isCbz ||
+        this.isEpubBook
+      ) {
+        positionType = readingPositionTypes.ratio;
+        const chapterElement = this.getVisualChapterElement(undefined, true);
+        if (
+          chapterElement &&
+          chapterElement.dataset &&
+          typeof chapterElement.dataset.index !== "undefined"
+        ) {
+          const activeChapterIndex = Number(chapterElement.dataset.index);
+          if (Number.isFinite(activeChapterIndex) && activeChapterIndex >= 0) {
+            chapterIndex = Math.floor(activeChapterIndex);
+          }
         }
-        this.$refs.bookContentRef.ensureSeekTime(pos);
-      } else if (this.isEpub || this.isCarToon) {
-        // 跳转
-        this.scrollContent(pos, 0, true);
-        if (this.isEpub) {
-          this.$once("iframeLoad", () => {
-            this.scrollContent(pos, 0, true);
-            callback && callback();
-          });
-        }
+        position = this.getVisualReadingPosition(chapterElement);
       } else {
         if (!this.$refs.bookContentRef) {
+          return null;
+        }
+        this.currentParagraph = this.getFirstVisibleReadingParagraph();
+        if (this.currentParagraph) {
+          const paragraphPosition = Number(
+            this.currentParagraph.dataset && this.currentParagraph.dataset.pos
+          );
+          if (Number.isFinite(paragraphPosition) && paragraphPosition >= 0) {
+            position = Math.floor(paragraphPosition);
+          }
+          let currentChapter = this.currentParagraph;
+          const contentRoot = this.$refs.bookContentRef.$el;
+          while (
+            currentChapter &&
+            currentChapter !== contentRoot &&
+            (!currentChapter.classList ||
+              !currentChapter.classList.contains("chapter-content"))
+          ) {
+            currentChapter = currentChapter.parentNode;
+          }
+          if (
+            currentChapter &&
+            currentChapter.dataset &&
+            typeof currentChapter.dataset.index !== "undefined"
+          ) {
+            const currentChapterIndex = Number(currentChapter.dataset.index);
+            if (
+              Number.isFinite(currentChapterIndex) &&
+              currentChapterIndex >= 0
+            ) {
+              chapterIndex = Math.floor(currentChapterIndex);
+            }
+          }
+        }
+      }
+      const chapter = (book.catalog || [])[chapterIndex] || {};
+      return {
+        bookUrl: book.bookUrl,
+        userName: this.$store.getters.currentUserName || "default",
+        chapterIndex,
+        chapterTitle: chapter.title || this.title || "",
+        position: Math.max(0, Math.floor(position)),
+        positionType,
+        updatedAt: Date.now(),
+        pending: this.isBookInShelf(book.bookUrl),
+        legacy: false,
+        confirmed: false
+      };
+    },
+    showVisualReadingPosition(progress, callback) {
+      const applyPosition = () => {
+        if (this._inactive || this._isDestroyed) {
+          callback && callback();
+          return;
+        }
+        if (
+          progress.bookUrl !==
+            (this.$store.getters.readingBook || {}).bookUrl ||
+          progress.chapterIndex !== this.chapterIndex
+        ) {
+          callback && callback();
+          return;
+        }
+        if (!this.$refs.bookContentRef || !this.$refs.bookContentRef.$el) {
+          setTimeout(applyPosition, 10);
+          return;
+        }
+        this.computePages(() => {
+          const ratio = Math.max(
+            0,
+            Math.min(1, progress.position / readingPositionRatioScale)
+          );
+          if (this.isSlideRead && this.totalPages > 1) {
+            const page =
+              Math.round(ratio * Math.max(1, this.totalPages - 1)) + 1;
+            this.showPage(page, 0);
+          } else {
+            const element =
+              this.getVisualChapterElement(progress.chapterIndex, false) ||
+              this.$refs.bookContentRef.$el;
+            const rect = element.getBoundingClientRect();
+            const currentScrollTop =
+              document.documentElement.scrollTop || document.body.scrollTop;
+            const viewportTop = this.getReadingViewportTop();
+            const viewportHeight = Math.max(
+              1,
+              this.windowSize.height -
+                viewportTop -
+                (this.$store.state.safeArea.bottom | 0)
+            );
+            const maxTravel = Math.max(0, rect.height - viewportHeight);
+            const elementTop = currentScrollTop + rect.top;
+            const targetScrollTop =
+              elementTop + ratio * maxTravel - viewportTop;
+            this.scrollContent(targetScrollTop, 0, true);
+          }
+          callback && callback();
+        });
+      };
+      this.$nextTick(applyPosition);
+    },
+    // 只会在进入的时候调用
+    showPosition(progress, callback) {
+      if (this._inactive || this._isDestroyed) {
+        callback && callback();
+        return;
+      }
+      progress = this.normalizeReadingProgress(
+        progress,
+        this.$store.getters.readingBook
+      );
+      if (!progress) {
+        callback && callback();
+        return;
+      }
+      let positionType = progress.positionType;
+      if (!positionType && progress.legacy) {
+        positionType = this.isAudio
+          ? readingPositionTypes.audio
+          : this.isEpub || this.isCarToon || this.isCbz || this.isEpubBook
+          ? "legacyPixels"
+          : readingPositionTypes.text;
+      }
+      if (!positionType) {
+        positionType =
+          this.isAudio ||
+          this.isEpub ||
+          this.isCarToon ||
+          this.isCbz ||
+          this.isEpubBook
+            ? null
+            : readingPositionTypes.text;
+      }
+      const epubContentReady = !!(
+        this.$refs.bookContentRef && this.$refs.bookContentRef.iframeLoaded
+      );
+      if (positionType === readingPositionTypes.audio) {
+        if (!this.$refs.bookContentRef) {
+          setTimeout(() => this.showPosition(progress, callback), 10);
+          return;
+        }
+        this.$refs.bookContentRef.ensureSeekTime(progress.position, callback);
+      } else if (positionType === readingPositionTypes.ratio) {
+        this.visualRestoreUntil = Date.now() + 2000;
+        if (this.isEpub && !epubContentReady) {
+          this.$once("iframeLoad", () => {
+            this.showVisualReadingPosition(progress, callback);
+          });
+          this.showVisualReadingPosition(progress);
+        } else if (this.isEpub) {
+          this.showVisualReadingPosition(progress, callback);
+        } else {
+          this.showVisualReadingPosition(progress);
           setTimeout(() => {
-            this.showPosition(pos, callback);
-          }, 10);
+            this.showVisualReadingPosition(progress, callback);
+          }, 500);
+        }
+      } else if (positionType === "legacyPixels") {
+        this.scrollContent(progress.position, 0, true);
+        if (this.isEpub && !epubContentReady) {
+          this.$once("iframeLoad", () => {
+            this.scrollContent(progress.position, 0, true);
+            callback && callback();
+          });
+        } else if (this.isEpub) {
+          callback && callback();
+        } else {
+          setTimeout(() => {
+            this.scrollContent(progress.position, 0, true);
+            callback && callback();
+          }, 500);
+        }
+      } else if (positionType === readingPositionTypes.text) {
+        if (!this.$refs.bookContentRef) {
+          setTimeout(() => this.showPosition(progress, callback), 10);
           return;
         }
         const list = this.$refs.bookContentRef.$el.querySelectorAll(
-          ".reading-chapter h3,p"
+          ".reading-chapter h3, .reading-chapter p"
         );
+        let paragraph = null;
         for (let i = 0; i < list.length; i++) {
           if (
             list[i].dataset &&
             typeof list[i].dataset.pos !== "undefined" &&
-            +list[i].dataset.pos >= pos
+            +list[i].dataset.pos >= progress.position
           ) {
-            this.showParagraph(list[i], true);
+            paragraph = list[i];
             break;
           }
         }
-        callback && callback();
-      }
-    },
-    saveReadingPosition() {
-      try {
-        if (this.error || !this.startSavePosition) {
+        if (!paragraph && list.length) {
+          paragraph = list[list.length - 1];
+        }
+        if (paragraph) {
+          this.showParagraph(paragraph, true, callback);
+        } else {
+          callback && callback();
+        }
+      } else {
+        if (this.isAudio && this.$refs.bookContentRef) {
+          this.$refs.bookContentRef.ensureSeekTime(0, callback);
+          return;
+        } else {
+          this.toTop(0, callback);
           return;
         }
-        let position = 0;
-        if (this.isAudio) {
-          position = this.$refs.bookContentRef
-            ? this.$refs.bookContentRef.currentTime
-            : 0;
-        } else if (this.isEpub || this.isCarToon) {
-          position =
-            document.documentElement.scrollTop || document.body.scrollTop;
+      }
+    },
+    saveReadingPosition(options) {
+      options =
+        options && typeof options === "object" && !options.type ? options : {};
+      try {
+        if (this.error || !this.startSavePosition) {
+          return null;
+        }
+        const progress = this.captureReadingProgress();
+        if (!progress) {
+          return null;
+        }
+        const cached = this.getCachedReadingProgress({
+          ...this.$store.getters.readingBook,
+          bookUrl: progress.bookUrl
+        });
+        const isShelfBook = this.isBookInShelf(progress.bookUrl);
+        const hasProgressChange =
+          !cached ||
+          !this.isReadingProgressEqual(cached, progress) ||
+          cached.pending ||
+          cached.legacy;
+        const chapterChanged = progress.chapterIndex !== this.chapterIndex;
+        if (!hasProgressChange) {
+          return progress;
+        }
+        progress.pending = isShelfBook;
+        this.setCachedReadingProgress(
+          progress,
+          isShelfBook,
+          progress.updatedAt
+        );
+        this.restoreReadingProgress = progress;
+        if (chapterChanged) {
+          this.$store.commit("setReadingBookIndex", progress);
+          this.title = progress.chapterTitle || this.title;
+        }
+        if (!isShelfBook) {
+          return progress;
+        }
+        this.enqueueReadingProgress(progress);
+        if (options.beacon) {
+          this.clearReadingProgressTimers();
+          this.sendReadingProgressBeacon(progress);
         } else {
-          // 更新当前章节 和 当前段落
-          if (this.preCaching) {
-            return;
-          }
-          this.currentParagraph = this.getCurrentParagraph();
-          if (this.currentParagraph) {
-            // 找到最近的 .chapter-content
-            let currentChapter = this.currentParagraph;
-            while (currentChapter.className.indexOf("chapter-content") < 0) {
-              currentChapter = currentChapter.parentNode;
-              if (currentChapter === this.$refs.bookContentRef.$el) {
-                break;
-              }
-            }
-            if (currentChapter) {
-              if (
-                currentChapter.dataset &&
-                typeof currentChapter.dataset.index !== "undefined"
-              ) {
-                const chapterIndex = +currentChapter.dataset.index;
-                if (chapterIndex != this.$store.getters.readingBook.index) {
-                  let book = { ...this.$store.getters.readingBook };
-                  book.index = chapterIndex;
-                  this.$store.commit("setReadingBook", book);
-                  // 保存阅读进度
-                  this.saveBookProgress();
-                  this.title = this.$store.getters.readingBook.catalog[
-                    chapterIndex
-                  ].title;
-                }
-              }
-              position = currentChapter.innerText.indexOf(
-                this.currentParagraph.innerText
-              );
-            }
+          if (options.immediate) {
+            this.flushReadingProgress(true);
+          } else {
+            this.scheduleReadingProgressSync(progress);
           }
         }
-        setCache(
-          "bookChapterProgress@" +
-            this.$store.getters.readingBook.name +
-            "_" +
-            this.$store.getters.readingBook.author,
-          position
-        );
+        return progress;
       } catch (error) {
-        //
+        return null;
       }
     },
     autoShowPosition(immediate) {
+      const scheduledInitId = this.readingProgressInitId;
       const handler = () => {
-        setTimeout(() => {
-          this.startSavePosition = true;
-        }, 2000);
-        if (this.error) {
+        if (
+          scheduledInitId !== this.readingProgressInitId ||
+          this.error ||
+          this._inactive ||
+          (!immediate && this.isScrollRead)
+        ) {
           return;
         }
-        const lastPosition = getCache(
-          "bookChapterProgress@" +
-            this.$store.getters.readingBook.name +
-            "_" +
-            this.$store.getters.readingBook.author
-        );
-        if (lastPosition && +lastPosition) {
-          this.$nextTick(() => {
-            this.showPosition(+lastPosition, () => {
-              this.startSavePosition = true;
-            });
-          });
+        const book = this.$store.getters.readingBook || {};
+        const restoreBookUrl = book.bookUrl;
+        const restoreChapterIndex = this.chapterIndex;
+        const restoreInitId = scheduledInitId;
+        let progress = this.restoreReadingProgress;
+        if (
+          !progress ||
+          progress.bookUrl !== book.bookUrl ||
+          progress.chapterIndex !== this.chapterIndex
+        ) {
+          progress = this.selectReadingProgress(
+            this.getServerReadingProgress(book),
+            this.getCachedReadingProgress(book)
+          );
         }
+        let finished = false;
+        const finishRestore = () => {
+          if (
+            finished ||
+            restoreInitId !== this.readingProgressInitId ||
+            restoreBookUrl !==
+              (this.$store.getters.readingBook || {}).bookUrl ||
+            restoreChapterIndex !== this.chapterIndex
+          ) {
+            return;
+          }
+          finished = true;
+          this.startSavePosition = true;
+          if (progress && (progress.pending || progress.legacy)) {
+            setTimeout(() => {
+              const migratedProgress = this.saveReadingPosition({
+                immediate: true
+              });
+              if (
+                progress.legacy &&
+                migratedProgress &&
+                migratedProgress.positionType &&
+                window.localStorage
+              ) {
+                window.localStorage.removeItem(
+                  this.getLegacyReadingProgressCacheKey(book)
+                );
+              }
+            }, 0);
+          }
+        };
+        this.$nextTick(() => {
+          if (progress) {
+            this.showPosition(progress, finishRestore);
+          } else {
+            this.toTop(0, finishRestore);
+          }
+        });
       };
       if (immediate) {
         handler();
@@ -3381,7 +4589,18 @@ export default {
     },
     lazyloadHandler() {
       if (!this.isAudio) {
-        this.computePages();
+        this.computePages(() => {
+          const progress = this.restoreReadingProgress;
+          if (
+            progress &&
+            progress.positionType === readingPositionTypes.ratio &&
+            Date.now() < this.visualRestoreUntil &&
+            progress.bookUrl === this.readingBook.bookUrl &&
+            progress.chapterIndex === this.chapterIndex
+          ) {
+            this.showVisualReadingPosition(progress);
+          }
+        });
       }
     },
     showCacheContent() {
@@ -3592,7 +4811,7 @@ export default {
       }
       try {
         const list = this.$refs.bookContentRef.$el.querySelectorAll(
-          ".reading-chapter h3,p"
+          ".reading-chapter h3, .reading-chapter p"
         );
         let matchCount = 0;
         for (let i = 0; i < list.length; i++) {
@@ -3666,7 +4885,7 @@ export default {
         .filter(v => v);
       try {
         const list = this.$refs.bookContentRef.$el.querySelectorAll(
-          ".reading-chapter h3,p"
+          ".reading-chapter h3, .reading-chapter p"
         );
         let paragraph = null;
         for (let i = 0; i < list.length; i++) {

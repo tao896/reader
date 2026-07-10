@@ -43,6 +43,7 @@ data class Book(
        var durChapterTitle: String? = null,        // 当前章节名称
        var durChapterIndex: Int = 0,               // 当前章节索引
        var durChapterPos: Int = 0,                 // 当前阅读的进度(首行字符的索引位置)
+       var durChapterPositionType: String? = null, // 章节内位置类型: textOffset/chapterRatio/audioSeconds
        var durChapterTime: Long = System.currentTimeMillis(),               // 最近一次阅读书籍的时间(打开正文的时间)
         override var wordCount: String? = null,
        var canUpdate: Boolean = true,              // 刷新书架时更新书籍信息

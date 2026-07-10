@@ -15,6 +15,7 @@ export default {
       currentSpeed: 1,
       audioVolume: 100,
       startTime: 0,
+      pendingAudioPositionCallback: null,
       skipIntroSeconds: 0,
       skipOutroSeconds: 0,
       sleepMinutes: 0,
@@ -25,6 +26,7 @@ export default {
       iframeInited: false,
       iframeSelectionTimer: null,
       unbindIframeSelection: null,
+      iframeLoaded: false,
       iframeMessageReady: false,
       iframeFilterToken: "",
       iframeFilterFallbackTimer: null,
@@ -226,6 +228,7 @@ export default {
       }
     },
     content() {
+      this.iframeLoaded = false;
       this.resetIframeFilterState();
       if (this.isAudio) {
         this.resetAudioPlaybackState();
@@ -252,6 +255,7 @@ export default {
     },
     isEpub(val) {
       if (val) {
+        this.iframeLoaded = false;
         this.resetIframeFilterState();
         this.$nextTick(() => this.initIframe());
       }
@@ -287,7 +291,15 @@ export default {
           {this.showChapterList.map(chapter => {
             if (chapter.isVolume) {
               return (
-                <div class="content-body chapter-content reading-chapter volume-chapter">
+                <div
+                  class={[
+                    "content-body chapter-content volume-chapter",
+                    this.readingBook.index === chapter.index
+                      ? "reading-chapter"
+                      : ""
+                  ]}
+                  data-index={chapter.index}
+                >
                   <div class="volume-content">
                     <h3 data-pos={0}>{chapter.title}</h3>
                     <p class="volume-tag">{chapter.content}</p>
@@ -568,8 +580,9 @@ export default {
             this.bindIframeSelectionEvents();
             this.applyIframeFilter();
             setTimeout(() => {
-              this.$emit("iframeLoad");
+              this.iframeLoaded = true;
               this.$emit("epubLocationChange", message.data);
+              this.$emit("iframeLoad");
             }, 100);
           } else if (message.event === "setHeight") {
             this.iframeStyle = {
@@ -601,10 +614,9 @@ export default {
           } else if (message.event === "previewImageList") {
             this.$store.commit("setPreviewImageIndex", message.data.imageIndex);
             this.$store.commit("setPreviewImgList", message.data.imageList);
+          } else if (message.event === "clickA") {
+            this.$emit("epubBeforeLocationChange", message.data);
           }
-          // else if (message.event === "clickA") {
-          //   this.$emit("locationChange", message.data);
-          // }
         }
       });
     },
@@ -1098,6 +1110,13 @@ export default {
         this.currentTime = seekTo | 0;
       }
       this.introApplied = true;
+      if (this.pendingAudioPositionCallback) {
+        const pendingCallback = this.pendingAudioPositionCallback;
+        this.pendingAudioPositionCallback = null;
+        if (pendingCallback.content === this.content) {
+          this.$nextTick(pendingCallback.callback);
+        }
+      }
       return true;
     },
     checkSkipOutro() {
@@ -1141,9 +1160,12 @@ export default {
         }
       }
     },
-    ensureSeekTime(val) {
+    ensureSeekTime(val, callback) {
       this.startTime = val;
-      this.applyInitialAudioPosition(true);
+      this.pendingAudioPositionCallback = callback
+        ? { callback, content: this.content }
+        : null;
+      return this.applyInitialAudioPosition(true);
     },
     toggle() {
       if (this.playing) {
