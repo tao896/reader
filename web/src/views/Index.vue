@@ -34,7 +34,9 @@
             <div class="modern-nav-title">书架</div>
             <button
               class="modern-nav-item"
-              :class="{ active: !isSearchResult && !isRankingView }"
+              :class="{
+                active: !isSearchResult && !isRankingView && !isHotSearchView
+              }"
               @click="backToShelf"
             >
               <span>▦</span>
@@ -75,6 +77,15 @@
             >
               <span>☆</span>
               <em>排行榜</em>
+              <strong></strong>
+            </button>
+            <button
+              class="modern-nav-item"
+              :class="{ active: isHotSearchView }"
+              @click="showHotSearch"
+            >
+              <span>♨</span>
+              <em>热搜</em>
               <strong></strong>
             </button>
           </div>
@@ -254,6 +265,14 @@
                 @click="showRanking"
               >
                 排行榜
+              </el-tag>
+              <el-tag
+                type="danger"
+                :effect="isNight ? 'dark' : 'light'"
+                class="setting-connect"
+                @click="showHotSearch"
+              >
+                热搜
               </el-tag>
             </div>
           </div>
@@ -776,7 +795,15 @@
           </button>
         </div>
       </div>
-      <div class="modern-overview" v-if="showModernShelf && !isSearchResult && !isRankingView">
+      <div
+        class="modern-overview"
+        v-if="
+          showModernShelf &&
+            !isSearchResult &&
+            !isRankingView &&
+            !isHotSearchView
+        "
+      >
         <div
           class="modern-continue-card"
           :class="{ disabled: !modernCurrentBook.bookUrl }"
@@ -909,7 +936,9 @@
             @click.stop="toggleMenu"
           ></i>
           {{
-            isRankingView
+            isHotSearchView
+              ? "热搜"
+              : isRankingView
               ? "排行榜"
               : isSearchResult
               ? isExploreResult
@@ -917,7 +946,9 @@
                 : "搜索"
               : "书架"
           }}
-          <span v-if="!isRankingView">({{ bookList.length }})</span>
+          <span v-if="!isRankingView && !isHotSearchView"
+            >({{ bookList.length }})</span
+          >
           <div
             class="title-btn"
             v-if="$store.getters.isNormalPage && isSearchResult"
@@ -927,7 +958,9 @@
           </div>
           <div
             class="title-btn"
-            v-if="$store.getters.isNormalPage && isRankingView"
+            v-if="
+              $store.getters.isNormalPage && (isRankingView || isHotSearchView)
+            "
             @click="backToShelf"
           >
             书架
@@ -942,18 +975,32 @@
           </div>
           <div
             class="title-btn"
-            v-if="$store.getters.isNormalPage && !isSearchResult && !isRankingView"
+            v-if="
+              $store.getters.isNormalPage &&
+                !isSearchResult &&
+                !isRankingView &&
+                !isHotSearchView
+            "
             @click="showBookEditButton = !showBookEditButton"
           >
             {{ showBookEditButton ? "取消" : "编辑" }}
           </div>
-          <div class="title-btn" v-if="!isSearchResult && !isRankingView" @click="refreshShelf">
+          <div
+            class="title-btn"
+            v-if="!isSearchResult && !isRankingView && !isHotSearchView"
+            @click="refreshShelf"
+          >
             <i class="el-icon-loading" v-if="refreshLoading"></i>
             {{ refreshLoading ? "刷新中..." : "刷新" }}
           </div>
           <div
             class="title-btn"
-            v-if="$store.getters.isNormalPage && !isSearchResult && !isRankingView"
+            v-if="
+              $store.getters.isNormalPage &&
+                !isSearchResult &&
+                !isRankingView &&
+                !isHotSearchView
+            "
             @click="showRssDialog"
           >
             RSS
@@ -963,7 +1010,8 @@
               showModernShelf &&
                 $store.getters.isNormalPage &&
                 !(isSearchResult && !isExploreResult) &&
-                !isRankingView
+                !isRankingView &&
+                !isHotSearchView
             "
             placement="bottom-end"
             :width="popupWidth"
@@ -989,7 +1037,9 @@
             @click="showExplorePop"
             v-else-if="
               $store.getters.isNormalPage &&
-                !(isSearchResult && !isExploreResult)
+                !(isSearchResult && !isExploreResult) &&
+                !isRankingView &&
+                !isHotSearchView
             "
           >
             书海
@@ -997,7 +1047,7 @@
         </div>
         <div
           class="book-group-wrapper"
-          v-if="!isSearchResult && !isRankingView"
+          v-if="!isSearchResult && !isRankingView && !isHotSearchView"
         >
           <el-tabs
             class="book-group-tabs"
@@ -1014,7 +1064,7 @@
         </div>
         <div
           class="books-wrapper"
-          v-show="!isRankingView"
+          v-show="!isRankingView && !isHotSearchView"
           ref="bookList"
           @touchstart="handleTouchStart"
           @touchmove="handleTouchMove"
@@ -1133,6 +1183,7 @@
           :api="api"
           @searchBook="searchFromRanking"
         />
+        <HotSearch :visible="isHotSearchView" :api="api" />
       </div>
     </div>
     <div
@@ -1649,6 +1700,7 @@
 import { mapGetters } from "vuex";
 import Explore from "../components/Explore.vue";
 import BookRanking from "../components/BookRanking.vue";
+import HotSearch from "../components/HotSearch.vue";
 import LocalStore from "../components/LocalStore.vue";
 import WebDAV from "../components/WebDAV.vue";
 import Axios from "../plugins/axios";
@@ -1664,7 +1716,8 @@ export default {
     Explore,
     LocalStore,
     WebDAV,
-    BookRanking
+    BookRanking,
+    HotSearch
   },
   data() {
     return {
@@ -1676,6 +1729,7 @@ export default {
       isSearchResult: false,
       isExploreResult: false,
       isRankingView: false,
+      isHotSearchView: false,
       rankingScrollState: null,
       searchResult: [],
       searchPage: 1,
@@ -2166,6 +2220,8 @@ export default {
       if (this.loadingMore) {
         return;
       }
+      this.isRankingView = false;
+      this.isHotSearchView = false;
       this.isSearchResult = true;
       this.isExploreResult = false;
       this.loadingMore = true;
@@ -2249,6 +2305,8 @@ export default {
         page: page // 单源搜索时的page
       };
 
+      this.isRankingView = false;
+      this.isHotSearchView = false;
       this.isSearchResult = true;
       this.isExploreResult = false;
       this.loadingMore = true;
@@ -2531,7 +2589,15 @@ export default {
     showRanking() {
       this.isSearchResult = false;
       this.isExploreResult = false;
+      this.isHotSearchView = false;
       this.isRankingView = true;
+      this.showNavigation = false;
+    },
+    showHotSearch() {
+      this.isSearchResult = false;
+      this.isExploreResult = false;
+      this.isRankingView = false;
+      this.isHotSearchView = true;
       this.showNavigation = false;
     },
     // eslint-disable-next-line no-unused-vars
@@ -2549,6 +2615,7 @@ export default {
         : null;
       this.search = name;
       this.isRankingView = false;
+      this.isHotSearchView = false;
       this.searchBook(1);
     },
     backToShelf() {
@@ -2558,6 +2625,7 @@ export default {
         this.searchResult = [];
         this.loadingMore = false;
         this.isRankingView = true;
+        this.isHotSearchView = false;
         this.$nextTick(() => {
           if (this.$refs.bookRanking) {
             this.$refs.bookRanking.restoreScrollState(this.rankingScrollState);
@@ -2569,6 +2637,7 @@ export default {
       this.isSearchResult = false;
       this.isExploreResult = false;
       this.isRankingView = false;
+      this.isHotSearchView = false;
       this.searchResult = [];
       this.loadingMore = false;
     },
@@ -2582,6 +2651,8 @@ export default {
     showSearchList(data) {
       this.isSearchResult = true;
       this.isExploreResult = true;
+      this.isRankingView = false;
+      this.isHotSearchView = false;
       this.loadingMore = false;
       this.searchResult = data;
     },

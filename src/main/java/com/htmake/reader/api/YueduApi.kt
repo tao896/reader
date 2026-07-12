@@ -23,6 +23,7 @@ import com.htmake.reader.api.controller.WebdavController
 import com.htmake.reader.api.controller.ReplaceRuleController
 import com.htmake.reader.api.controller.BookmarkController
 import com.htmake.reader.api.controller.RankingController
+import com.htmake.reader.api.controller.HotSearchController
 import com.htmake.reader.utils.error
 import com.htmake.reader.utils.success
 import com.htmake.reader.utils.getStorage
@@ -137,6 +138,7 @@ class YueduApi : RestVerticle() {
         val replaceRuleController = ReplaceRuleController(coroutineContext)
         val bookmarkController = BookmarkController(coroutineContext)
         val rankingController = RankingController(coroutineContext)
+        val hotSearchController = HotSearchController(coroutineContext)
 
         /** 书源模块 */
         router.post("/reader3/saveBookSource").coroutineHandler { bookSourceController.saveBookSource(it) }
@@ -366,6 +368,13 @@ class YueduApi : RestVerticle() {
         /** 排行榜模块 */
         router.get("/reader3/getBookRankingOptions").coroutineHandler { rankingController.getBookRankingOptions(it) }
         router.get("/reader3/getBookRankings").coroutineHandler { rankingController.getBookRankings(it) }
+
+        /** 热搜模块 */
+        router.get("/reader3/getHotSearchOptions").coroutineHandler { hotSearchController.getHotSearchOptions(it) }
+        router.get("/reader3/getHotSearches").coroutineHandler { hotSearchController.getHotSearches(it) }
+        router.get("/reader3/getWeiboHotSearchSession").coroutineHandler { hotSearchController.getWeiboHotSearchSession(it) }
+        router.post("/reader3/setWeiboHotSearchSession").coroutineHandler { hotSearchController.setWeiboHotSearchSession(it) }
+        router.post("/reader3/clearWeiboHotSearchSession").coroutineHandler { hotSearchController.clearWeiboHotSearchSession(it) }
     }
 
     suspend fun setupPort() {

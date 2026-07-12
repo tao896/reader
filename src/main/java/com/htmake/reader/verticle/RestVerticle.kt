@@ -31,23 +31,6 @@ abstract class RestVerticle : CoroutineVerticle() {
         super.start()
         router = Router.router(vertx)
         val cookieName = "reader.session"
-	    router.route().handler(
-            SessionHandler.create(LocalSessionStore.create(vertx))
-                            .setSessionCookieName(cookieName)
-                            .setSessionTimeout(7L * 86400 * 1000)
-                            .setSessionCookiePath("/")
-        );
-        router.route().handler {
-            it.addHeadersEndHandler { _ ->
-                val cookie = it.getCookie(cookieName)
-                if (cookie != null) {
-                    // 每次访问都延长cookie有效期
-                    cookie.setMaxAge(2L * 86400 * 1000)
-                    cookie.setPath("/")
-                }
-            }
-            it.next()
-        }
 
         // CORS support
         router.route().handler {
@@ -61,13 +44,29 @@ abstract class RestVerticle : CoroutineVerticle() {
                     res.putHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, If-Match, If-Modified-Since, If-None-Match, If-Unmodified-Since, X-Requested-With")
                 }
             }
-            val origin = it.request().getHeader("Origin")
-            if (origin != null && origin.isNotEmpty() && it.request().method() == HttpMethod.OPTIONS) {
-                it.removeCookie(cookieName)
+            if (it.request().method() == HttpMethod.OPTIONS) {
                 it.success("")
             } else {
                 it.next()
             }
+        }
+
+        router.route().handler(
+            SessionHandler.create(LocalSessionStore.create(vertx))
+                .setSessionCookieName(cookieName)
+                .setSessionTimeout(7L * 86400 * 1000)
+                .setSessionCookiePath("/")
+        )
+        router.route().handler {
+            it.addHeadersEndHandler { _ ->
+                val cookie = it.getCookie(cookieName)
+                if (cookie != null) {
+                    // 每次访问都延长cookie有效期
+                    cookie.setMaxAge(2L * 86400 * 1000)
+                    cookie.setPath("/")
+                }
+            }
+            it.next()
         }
 
         router.route().handler(BodyHandler.create())
@@ -75,7 +74,10 @@ abstract class RestVerticle : CoroutineVerticle() {
         router.route().handler(LoggerHandler.create(LoggerFormat.DEFAULT));
         router.route("/reader3/*").handler {
             logger.info("{} {}", it.request().rawMethod(), URLDecoder.decode(it.request().absoluteURI(), "UTF-8"))
-            if (!it.request().rawMethod().equals("PUT") && (it.fileUploads() == null || it.fileUploads().isEmpty()) && it.bodyAsString.length > 0 && it.bodyAsString.length < 1000) {
+            val sensitiveBody = it.request().path() == "/reader3/setWeiboHotSearchSession"
+            if (sensitiveBody && it.bodyAsString.isNotEmpty()) {
+                logger.info("Request body: [REDACTED]")
+            } else if (!it.request().rawMethod().equals("PUT") && (it.fileUploads() == null || it.fileUploads().isEmpty()) && it.bodyAsString.length > 0 && it.bodyAsString.length < 1000) {
                 logger.info("Request body: {}", it.bodyAsString)
             }
             it.next()

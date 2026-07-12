@@ -5,6 +5,30 @@ import { setCache, getCache } from "../plugins/cache";
 import { Message } from "element-ui";
 
 const defaultNS = [{ username: "默认", userNS: "default" }];
+const loopbackHosts = ["localhost", "127.0.0.1", "::1"];
+
+export const normalizeLoopbackApiHost = api => {
+  try {
+    const url = new URL(api, location.href);
+    const pageHostname = location.hostname.replace(/^\[|\]$/g, "");
+    const apiHostname = url.hostname.replace(/^\[|\]$/g, "");
+    if (
+      loopbackHosts.includes(pageHostname) &&
+      loopbackHosts.includes(apiHostname) &&
+      apiHostname !== pageHostname
+    ) {
+      url.hostname = location.hostname;
+      if (api.startsWith("//")) {
+        return "//" + url.host + url.pathname + url.search + url.hash;
+      }
+      return url.toString();
+    }
+  } catch (error) {
+    // 保留原有地址，由请求层继续处理格式错误。
+  }
+  return api;
+};
+
 const builtInBookGroup = [
   { groupId: -1, groupName: "全部", order: -10, show: true },
   { groupId: -2, groupName: "本地", order: -9, show: true },
@@ -522,14 +546,17 @@ export default new Vuex.Store({
   },
   getters: {
     api: state => {
+      let api;
       if (
         state.api.startsWith("http://") ||
         state.api.startsWith("https://") ||
         state.api.startsWith("//")
       ) {
-        return state.api;
+        api = state.api;
+      } else {
+        api = "//" + state.api;
       }
-      return "//" + state.api;
+      return normalizeLoopbackApiHost(api);
     },
     apiRoot: (state, getters) => {
       return getters.api.replace(/\/reader3\/?/, "");
