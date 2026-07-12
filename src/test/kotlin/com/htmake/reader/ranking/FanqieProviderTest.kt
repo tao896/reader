@@ -54,9 +54,36 @@ class FanqieProviderTest {
     }
 
     @Test
+    fun `parseRankingPage supports current SSR markup`() {
+        val doc = Jsoup.parse(
+            """
+            <div class="rank-book-item">
+              <div class="book-item-index">01-</div>
+              <img class="book-cover-img" src="//example.com/current-cover.jpg">
+              <div class="title"><a href="/page/7600000000000000001">新版番茄书籍</a></div>
+              <div class="author"><a>新版作者</a></div>
+              <div class="desc abstract">新版简介</div>
+              <span class="book-item-footer-status">连载中</span>
+              <span class="book-item-count">在读：12.3万</span>
+              <a class="chapter">最近更新：第100章</a>
+            </div>
+            """.trimIndent()
+        )
+
+        val book = provider.parseRankingPage(doc).single()
+        assertEquals(1, book.rank)
+        assertEquals("7600000000000000001", book.siteBookId)
+        assertEquals("新版番茄书籍", book.name)
+        assertEquals("新版作者", book.author)
+        assertEquals("在读：12.3万", book.metric)
+        assertEquals("第100章", book.latestChapter)
+        assertEquals("https://example.com/current-cover.jpg", book.coverUrl)
+    }
+
+    @Test
     fun `buildUrl produces valid URL`() {
         val url = provider.buildUrl("read", "male", null, 1)
-        assertTrue(url.contains("fanqienovel.com") || url.contains("changdunovel.com"))
+        assertEquals("https://fanqienovel.com/rank/1_2_1141?page=1", url)
     }
 
     @Test(expected = IllegalArgumentException::class)

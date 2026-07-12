@@ -6,6 +6,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.Request
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
@@ -20,6 +21,7 @@ class QidianProvider : RankingProvider {
         private const val USER_AGENT =
             "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 " +
                 "(KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
+        private val BOOK_ID_PATTERN = Regex("/book/(\\d+)")
     }
 
     private val rankTypeMap = linkedMapOf(
@@ -31,6 +33,21 @@ class QidianProvider : RankingProvider {
         "update" to "更新榜",
         "signNewBook" to "签约新书榜",
         "newAuthor" to "新人榜"
+    )
+
+    /**
+     * 起点对外展示的榜单标识与阅读 Web 端曾经使用的 camelCase 标识不同。
+     * 前端继续使用稳定的内部标识，由 Provider 在这里转换为当前真实路由。
+     */
+    private val rankRouteMap = mapOf(
+        "monthTicket" to "yuepiao",
+        "bestSell" to "hotsales",
+        "readIndex" to "readindex",
+        "newBook" to "newbook",
+        "recom" to "rec",
+        "update" to "update",
+        "signNewBook" to "sign",
+        "newAuthor" to "newauthor"
     )
 
     override fun siteConfig(): RankingSiteConfig {
@@ -47,10 +64,9 @@ class QidianProvider : RankingProvider {
      * 拼接榜单请求地址，仅支持 [rankTypeMap] 中登记的榜单类型
      */
     fun buildUrl(rankType: String, page: Int): String {
-        if (!rankTypeMap.containsKey(rankType)) {
-            throw IllegalArgumentException("Invalid rank type: $rankType")
-        }
-        return "https://m.qidian.com/rank/$rankType/?page=$page"
+        val route = rankRouteMap[rankType]
+            ?: throw IllegalArgumentException("Invalid rank type: $rankType")
+        return "https://m.qidian.com/rank/$route/?page=$page"
     }
 
     override suspend fun fetchRanking(
@@ -72,37 +88,73 @@ class QidianProvider : RankingProvider {
                 .readTimeout(10, TimeUnit.SECONDS)
                 .build()
             client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw IOException("HTTP ${response.code} (${response.request.url})")
+                }
                 response.body?.string() ?: ""
             }
         }
         val doc = Jsoup.parse(html)
         val books = parseRankingPage(doc)
-        return RankingResult(items = books, page = page, hasMore = books.size >= 20)
+        if (books.isEmpty()) {
+            throw IOException("起点榜单页面未解析到书籍，页面结构可能已更新")
+        }
+        // 当前移动榜单公开展示 Top 20，没有可稳定使用的服务端翻页地址。
+        return RankingResult(items = books, page = page, hasMore = false)
     }
 
     /**
      * 解析榜单页面 DOM，提取书籍列表
      */
     fun parseRankingPage(doc: Document): List<RankingBook> {
-        val items = doc.select(".book-list .book-item")
+        // 第一项兼容旧版页面和测试夹具，第二项是当前移动站 SSR 结构。
+        val items = doc.select(".book-list .book-item, .y-list__item")
         val books = mutableListOf<RankingBook>()
         for ((index, item) in items.withIndex()) {
-            val name = item.select(".book-mid-info h2").text().trim()
+            val bookLink = item.selectFirst("a[href*=/book/]")
+            val name = item.selectFirst(".book-mid-info h2, h2")?.text()?.trim().orEmpty()
             if (name.isEmpty()) continue
 
-            val bookId = item.attr("data-bookid").trim()
-            val author = item.select(".author a").text().trim()
-            val intro = item.select(".intro").text().trim()
-            val category = item.select(".tag span").first()?.text()?.trim() ?: ""
+            val href = bookLink?.attr("href")?.trim().orEmpty()
+            val bookId = item.attr("data-bookid").trim().ifEmpty {
+                BOOK_ID_PATTERN.find(href)?.groupValues?.get(1).orEmpty()
+            }
+            val subtitleParts = item.selectFirst("p[class*=_subTitle_]")
+                ?.text()
+                ?.split("·")
+                ?.map { it.trim() }
+                .orEmpty()
+            val author = item.select(".author a").text().trim().ifEmpty {
+                subtitleParts.getOrNull(0).orEmpty()
+            }
+            val intro = item.selectFirst(".intro, p[class*=_bookDesc_]")?.text()?.trim().orEmpty()
+            val category = item.select(".tag span").first()?.text()?.trim().orEmpty().ifEmpty {
+                subtitleParts.getOrNull(1).orEmpty()
+            }
 
-            val metricValue = item.select(".book-right-info .total span").text().trim()
-            val metricUnit = item.select(".book-right-info .total em").text().trim()
-            val metric = if (metricValue.isNotEmpty()) "$metricValue$metricUnit" else ""
+            val oldMetricValue = item.select(".book-right-info .total span").text().trim()
+            val oldMetricUnit = item.select(".book-right-info .total em").text().trim()
+            val metric = if (oldMetricValue.isNotEmpty()) {
+                "$oldMetricValue$oldMetricUnit"
+            } else {
+                item.selectFirst("div[class*=_bookTitleR_]")?.text()?.trim().orEmpty()
+            }
 
-            val coverUrl = normalizeUrl(item.select(".book-img-box img").attr("src").trim())
-            val officialUrl = normalizeUrl(item.select(".book-img-box a").attr("href").trim())
+            val coverImage = item.selectFirst(".book-img-box img, img")
+            val coverUrl = normalizeUrl(
+                coverImage?.attr("data-src")?.trim().orEmpty().ifEmpty {
+                    coverImage?.attr("src")?.trim().orEmpty()
+                }
+            )
+            val officialUrl = normalizeUrl(
+                item.selectFirst(".book-img-box a")?.attr("href")?.trim().orEmpty().ifEmpty { href }
+            )
 
-            val rank = item.select(".rank-num").text().trim().toIntOrNull() ?: (index + 1)
+            val rank = item.selectFirst(".rank-num, div[class*=_ranking_]")
+                ?.text()
+                ?.trim()
+                ?.toIntOrNull()
+                ?: (index + 1)
 
             books.add(
                 RankingBook(

@@ -6,6 +6,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.Request
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
@@ -20,6 +21,7 @@ class FanqieProvider : RankingProvider {
         private const val USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        private val BOOK_ID_PATTERN = Regex("/page/(\\d+)")
     }
 
     private val rankTypeMap = linkedMapOf(
@@ -41,6 +43,28 @@ class FanqieProvider : RankingProvider {
         "wuxia" to "武侠",
         "yanqing" to "言情",
         "guzhuang" to "古装"
+    )
+
+    private val maleCategoryRouteMap = mapOf(
+        "all" to "1141",
+        "xuanhuan" to "258",
+        "dushi" to "261",
+        "lishi" to "273",
+        "kehuan" to "8",
+        "wuxia" to "1140",
+        "yanqing" to "262",
+        "guzhuang" to "272"
+    )
+
+    private val femaleCategoryRouteMap = mapOf(
+        "all" to "1139",
+        "xuanhuan" to "248",
+        "dushi" to "267",
+        "lishi" to "79",
+        "kehuan" to "8",
+        "wuxia" to "253",
+        "yanqing" to "749",
+        "guzhuang" to "246"
     )
 
     override fun siteConfig(): RankingSiteConfig {
@@ -76,9 +100,16 @@ class FanqieProvider : RankingProvider {
         if (!rankTypeMap.containsKey(rankType)) {
             throw IllegalArgumentException("Invalid rank type: $rankType")
         }
-        val g = if (genderMap.containsKey(gender)) gender else "male"
-        val c = if (categoryMap.containsKey(category)) category else "all"
-        return "https://fanqienovel.com/rank/$rankType/$g/$c?page=$page"
+        val normalizedGender = if (genderMap.containsKey(gender)) gender!! else "male"
+        val routeGender = if (normalizedGender == "male") "1" else "0"
+        val routeRankType = if (rankType == "read") "2" else "1"
+        val categoryRoutes = if (normalizedGender == "male") maleCategoryRouteMap else femaleCategoryRouteMap
+        val normalizedCategory = category?.takeIf { categoryMap.containsKey(it) } ?: "all"
+        val routeCategory = categoryRoutes[normalizedCategory] ?: categoryRoutes.getValue("all")
+
+        // 番茄榜单的当前路由是 gender_rankMold_category。公开 SSR 页面只返回 Top 10，
+        // page 参数保留在查询串中用于日志定位，但 Provider 不把它声明成可翻页数据。
+        return "https://fanqienovel.com/rank/${routeGender}_${routeRankType}_$routeCategory?page=$page"
     }
 
     override suspend fun fetchRanking(
@@ -100,41 +131,55 @@ class FanqieProvider : RankingProvider {
                 .readTimeout(10, TimeUnit.SECONDS)
                 .build()
             client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw IOException("HTTP ${response.code} (${response.request.url})")
+                }
                 response.body?.string() ?: ""
             }
         }
         val doc = Jsoup.parse(html)
         val books = parseRankingPage(doc)
-        return RankingResult(items = books, page = page, hasMore = books.size >= 20)
+        if (books.isEmpty()) {
+            throw IOException("番茄榜单页面未解析到书籍，页面结构可能已更新")
+        }
+        return RankingResult(items = books, page = page, hasMore = false)
     }
 
     /**
      * 解析榜单页面 DOM，提取书籍列表
      */
     fun parseRankingPage(doc: Document): List<RankingBook> {
-        val items = doc.select(".rank-item")
+        val items = doc.select(".rank-item, .rank-book-item")
         val books = mutableListOf<RankingBook>()
         for ((index, item) in items.withIndex()) {
             val name = item.select(".title").text().trim()
             if (name.isEmpty()) continue
 
-            val bookId = item.attr("data-book-id").trim()
-            val author = item.select(".author").text().trim()
+            val bookLink = item.selectFirst("a[href^=/page/]")
+            val bookId = item.attr("data-book-id").trim().ifEmpty {
+                BOOK_ID_PATTERN.find(bookLink?.attr("href").orEmpty())?.groupValues?.get(1).orEmpty()
+            }
+            val author = item.selectFirst(".author a, .author")?.text()?.trim().orEmpty()
                 .removePrefix("作者：").removePrefix("作者:").trim()
-            val intro = item.select(".intro").text().trim()
-            val desc = item.select(".desc").text().trim()
-            val category = desc.split("·").firstOrNull()?.trim() ?: ""
+            val intro = item.selectFirst(".intro, .abstract")?.text()?.trim().orEmpty()
+            val oldDesc = item.selectFirst(".desc:not(.abstract)")?.text()?.trim().orEmpty()
+            val category = oldDesc.split("·").firstOrNull()?.trim().orEmpty()
             val status = when {
-                desc.contains("连载") -> "连载中"
-                desc.contains("完结") -> "已完结"
+                item.select(".book-item-footer-status").text().contains("完结") || oldDesc.contains("完结") -> "已完结"
+                item.select(".book-item-footer-status").text().contains("连载") || oldDesc.contains("连载") -> "连载中"
                 else -> ""
             }
-            val coverUrl = item.select(".rank-book-cover img").attr("src").trim()
+            val coverUrl = normalizeUrl(
+                item.selectFirst(".rank-book-cover img, .book-cover-img")?.attr("src")?.trim().orEmpty()
+            )
             val score = item.select(".score").text().trim()
-            val metric = if (score.isNotEmpty()) "${score}分" else ""
+            val metric = if (score.isNotEmpty()) "${score}分" else item.select(".book-item-count").text().trim()
 
-            val rank = item.select(".rank-index span").text().trim().toIntOrNull() ?: (index + 1)
+            val rankText = item.selectFirst(".rank-index span, .book-item-index")?.text().orEmpty()
+            val rank = rankText.filter { it.isDigit() }.toIntOrNull() ?: (index + 1)
             val officialUrl = if (bookId.isNotEmpty()) "https://fanqienovel.com/page/$bookId" else ""
+            val latestChapter = item.select(".chapter").text().trim()
+                .removePrefix("最近更新：").removePrefix("最近更新:").trim()
 
             books.add(
                 RankingBook(
@@ -147,10 +192,15 @@ class FanqieProvider : RankingProvider {
                     metric = metric,
                     intro = intro,
                     status = status,
+                    latestChapter = latestChapter,
                     officialUrl = officialUrl
                 )
             )
         }
         return books
+    }
+
+    private fun normalizeUrl(url: String): String {
+        return if (url.startsWith("//")) "https:$url" else url
     }
 }

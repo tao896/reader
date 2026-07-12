@@ -59,9 +59,40 @@ class CiweimaoProviderTest {
     }
 
     @Test
+    fun `parseRankingPage supports current rank-index markup`() {
+        val doc = Jsoup.parse(
+            """
+            <ol class="rank-book-list">
+              <li data-book-id="100499999">
+                <i class="rank-top top1">1</i>
+                <a class="cover" href="https://www.ciweimao.com/book/100499999" title="新版刺猬猫书籍">
+                  <img src="placeholder.png" data-original="https://example.com/current-cover.jpg">
+                </a>
+                <div class="cnt">
+                  <h3 class="tit"><a>新版刺猬猫书籍</a></h3>
+                  <p>小说作者：<a href="https://www.ciweimao.com/reader/123">新版作者</a></p>
+                  <p>最近更新：2026-07-12 / 第100章</p>
+                  <p class="desc">新版简介</p>
+                </div>
+              </li>
+            </ol>
+            """.trimIndent()
+        )
+
+        val book = provider.parseRankingPage(doc).single()
+        assertEquals(1, book.rank)
+        assertEquals("100499999", book.siteBookId)
+        assertEquals("新版刺猬猫书籍", book.name)
+        assertEquals("新版作者", book.author)
+        assertEquals("新版简介", book.intro)
+        assertEquals("第100章", book.latestChapter)
+        assertEquals("https://example.com/current-cover.jpg", book.coverUrl)
+    }
+
+    @Test
     fun `buildUrl produces valid URL for known rank type and period`() {
         val url = provider.buildUrl("click", "weekly", 1)
-        assertTrue(url.contains("ciweimao.com"))
+        assertEquals("https://www.ciweimao.com/rank-index/no-vip-click-week/1", url)
     }
 
     @Test(expected = IllegalArgumentException::class)
