@@ -22,6 +22,7 @@ import com.htmake.reader.api.controller.UserController
 import com.htmake.reader.api.controller.WebdavController
 import com.htmake.reader.api.controller.ReplaceRuleController
 import com.htmake.reader.api.controller.BookmarkController
+import com.htmake.reader.api.controller.RankingController
 import com.htmake.reader.utils.error
 import com.htmake.reader.utils.success
 import com.htmake.reader.utils.getStorage
@@ -135,6 +136,7 @@ class YueduApi : RestVerticle() {
         }
         val replaceRuleController = ReplaceRuleController(coroutineContext)
         val bookmarkController = BookmarkController(coroutineContext)
+        val rankingController = RankingController(coroutineContext)
 
         /** 书源模块 */
         router.post("/reader3/saveBookSource").coroutineHandler { bookSourceController.saveBookSource(it) }
@@ -360,6 +362,10 @@ class YueduApi : RestVerticle() {
         router.post("/reader3/saveBookmarks").coroutineHandler { bookmarkController.saveBookmarks(it) }
         router.post("/reader3/deleteBookmark").coroutineHandler { bookmarkController.deleteBookmark(it) }
         router.post("/reader3/deleteBookmarks").coroutineHandler { bookmarkController.deleteBookmarks(it) }
+
+        /** 排行榜模块 */
+        router.get("/reader3/getBookRankingOptions").coroutineHandler { rankingController.getBookRankingOptions(it) }
+        router.get("/reader3/getBookRankings").coroutineHandler { rankingController.getBookRankings(it) }
     }
 
     suspend fun setupPort() {
