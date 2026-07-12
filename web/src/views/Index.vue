@@ -32,7 +32,11 @@
           </div>
           <div class="modern-nav-section">
             <div class="modern-nav-title">书架</div>
-            <button class="modern-nav-item active" @click="backToShelf">
+            <button
+              class="modern-nav-item"
+              :class="{ active: !isSearchResult && !isRankingView }"
+              @click="backToShelf"
+            >
               <span>▦</span>
               <em>全部书籍</em>
               <strong>{{ shelfBooks.length }}</strong>
@@ -60,6 +64,18 @@
               <span>◉</span>
               <em>音频</em>
               <strong>{{ getShowShelfBooks(-3).length }}</strong>
+            </button>
+          </div>
+          <div class="modern-nav-section">
+            <div class="modern-nav-title">发现</div>
+            <button
+              class="modern-nav-item"
+              :class="{ active: isRankingView }"
+              @click="showRanking"
+            >
+              <span>☆</span>
+              <em>排行榜</em>
+              <strong></strong>
             </button>
           </div>
           <div class="modern-nav-section">
@@ -228,6 +244,18 @@
             >
               <i slot="prefix" class="el-input__icon el-icon-search"></i>
             </el-input>
+          </div>
+          <div class="setting-wrapper">
+            <div class="setting-item">
+              <el-tag
+                type="info"
+                :effect="isNight ? 'dark' : 'light'"
+                class="setting-connect"
+                @click="showRanking"
+              >
+                排行榜
+              </el-tag>
+            </div>
           </div>
           <div class="setting-wrapper search-setting">
             <div class="setting-title">
@@ -880,11 +908,26 @@
             v-if="$store.getters.isNormalPage && collapseMenu"
             @click.stop="toggleMenu"
           ></i>
-          {{ isSearchResult ? (isExploreResult ? "探索" : "搜索") : "书架" }}
+          {{
+            isRankingView
+              ? "排行榜"
+              : isSearchResult
+              ? isExploreResult
+                ? "探索"
+                : "搜索"
+              : "书架"
+          }}
           ({{ bookList.length }})
           <div
             class="title-btn"
             v-if="$store.getters.isNormalPage && isSearchResult"
+            @click="backToShelf"
+          >
+            书架
+          </div>
+          <div
+            class="title-btn"
+            v-if="$store.getters.isNormalPage && isRankingView"
             @click="backToShelf"
           >
             书架
@@ -951,7 +994,10 @@
             书海
           </div>
         </div>
-        <div class="book-group-wrapper" v-if="!isSearchResult">
+        <div
+          class="book-group-wrapper"
+          v-if="!isSearchResult && !isRankingView"
+        >
           <el-tabs
             class="book-group-tabs"
             v-model="showBookGroupString"
@@ -967,6 +1013,7 @@
         </div>
         <div
           class="books-wrapper"
+          v-show="!isRankingView"
           ref="bookList"
           @touchstart="handleTouchStart"
           @touchmove="handleTouchMove"
@@ -1079,6 +1126,12 @@
             </div>
           </div>
         </div>
+        <BookRanking
+          ref="bookRanking"
+          :visible="isRankingView"
+          :api="api"
+          @searchBook="searchFromRanking"
+        />
       </div>
     </div>
     <div
@@ -1594,6 +1647,7 @@
 <script>
 import { mapGetters } from "vuex";
 import Explore from "../components/Explore.vue";
+import BookRanking from "../components/BookRanking.vue";
 import LocalStore from "../components/LocalStore.vue";
 import WebDAV from "../components/WebDAV.vue";
 import Axios from "../plugins/axios";
@@ -1608,7 +1662,8 @@ export default {
   components: {
     Explore,
     LocalStore,
-    WebDAV
+    WebDAV,
+    BookRanking
   },
   data() {
     return {
@@ -1619,6 +1674,8 @@ export default {
       ],
       isSearchResult: false,
       isExploreResult: false,
+      isRankingView: false,
+      rankingScrollState: null,
       searchResult: [],
       searchPage: 1,
       refreshLoading: false,
@@ -2470,9 +2527,47 @@ export default {
       }
       return str;
     },
-    backToShelf() {
+    showRanking() {
       this.isSearchResult = false;
       this.isExploreResult = false;
+      this.isRankingView = true;
+      this.showNavigation = false;
+    },
+    // eslint-disable-next-line no-unused-vars
+    searchFromRanking(name, author) {
+      if (!this.$store.state.connected) {
+        this.$message.error("后端未连接");
+        return;
+      }
+      if (!this.bookSourceList.length) {
+        this.$message.warning("请先导入书源后再搜索");
+        return;
+      }
+      this.rankingScrollState = this.$refs.bookRanking
+        ? this.$refs.bookRanking.getScrollState()
+        : null;
+      this.search = name;
+      this.isRankingView = false;
+      this.searchBook(1);
+    },
+    backToShelf() {
+      if (this.isSearchResult && this.rankingScrollState) {
+        this.isSearchResult = false;
+        this.isExploreResult = false;
+        this.searchResult = [];
+        this.loadingMore = false;
+        this.isRankingView = true;
+        this.$nextTick(() => {
+          if (this.$refs.bookRanking) {
+            this.$refs.bookRanking.restoreScrollState(this.rankingScrollState);
+          }
+        });
+        this.rankingScrollState = null;
+        return;
+      }
+      this.isSearchResult = false;
+      this.isExploreResult = false;
+      this.isRankingView = false;
       this.searchResult = [];
       this.loadingMore = false;
     },
