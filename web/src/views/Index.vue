@@ -776,7 +776,7 @@
           </button>
         </div>
       </div>
-      <div class="modern-overview" v-if="showModernShelf && !isSearchResult">
+      <div class="modern-overview" v-if="showModernShelf && !isSearchResult && !isRankingView">
         <div
           class="modern-continue-card"
           :class="{ disabled: !modernCurrentBook.bookUrl }"
@@ -917,7 +917,7 @@
                 : "搜索"
               : "书架"
           }}
-          ({{ bookList.length }})
+          <span v-if="!isRankingView">({{ bookList.length }})</span>
           <div
             class="title-btn"
             v-if="$store.getters.isNormalPage && isSearchResult"
@@ -942,18 +942,18 @@
           </div>
           <div
             class="title-btn"
-            v-if="$store.getters.isNormalPage && !isSearchResult"
+            v-if="$store.getters.isNormalPage && !isSearchResult && !isRankingView"
             @click="showBookEditButton = !showBookEditButton"
           >
             {{ showBookEditButton ? "取消" : "编辑" }}
           </div>
-          <div class="title-btn" v-if="!isSearchResult" @click="refreshShelf">
+          <div class="title-btn" v-if="!isSearchResult && !isRankingView" @click="refreshShelf">
             <i class="el-icon-loading" v-if="refreshLoading"></i>
             {{ refreshLoading ? "刷新中..." : "刷新" }}
           </div>
           <div
             class="title-btn"
-            v-if="$store.getters.isNormalPage && !isSearchResult"
+            v-if="$store.getters.isNormalPage && !isSearchResult && !isRankingView"
             @click="showRssDialog"
           >
             RSS
@@ -962,7 +962,8 @@
             v-if="
               showModernShelf &&
                 $store.getters.isNormalPage &&
-                !(isSearchResult && !isExploreResult)
+                !(isSearchResult && !isExploreResult) &&
+                !isRankingView
             "
             placement="bottom-end"
             :width="popupWidth"
