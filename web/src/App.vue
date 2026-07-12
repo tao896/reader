@@ -1023,10 +1023,11 @@ export default {
   --ui-radius: 12px;
   --ui-radius-sm: 8px;
   --ui-radius-lg: 16px;
-  --ui-transition: 220ms cubic-bezier(.4,0,.2,1);
-  --ui-shadow-sm: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
-  --ui-shadow: 0 4px 16px rgba(0,0,0,.08), 0 1px 3px rgba(0,0,0,.06);
-  --ui-shadow-lg: 0 12px 40px rgba(0,0,0,.12), 0 4px 12px rgba(0,0,0,.06);
+  --ui-transition: 220ms cubic-bezier(0.4, 0, 0.2, 1);
+  --ui-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --ui-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.06);
+  --ui-shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.12),
+    0 4px 12px rgba(0, 0, 0, 0.06);
   --ui-accent: #4f6ef7;
   --ui-accent-hover: #3d5ce5;
   --ui-surface: #ffffff;
@@ -1034,10 +1035,10 @@ export default {
   --ui-text: #1a1d23;
   --ui-text-secondary: #5f6672;
   --ui-text-muted: #9ba3ae;
-  --ui-border: rgba(0,0,0,.08);
-  --ui-font: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
-    "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei",
-    "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --ui-border: rgba(0, 0, 0, 0.08);
+  --ui-font: -apple-system, BlinkMacSystemFont, "PingFang SC",
+    "Hiragino Sans GB", "Noto Sans CJK SC", "Source Han Sans SC",
+    "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
 }
 
 #app {
@@ -1055,25 +1056,23 @@ export default {
   src: local("Songti SC"), local("Noto Serif CJK SC"),
     local("Source Han Serif SC"), local("Source Han Serif CN"), local("STSong"),
     local("宋体"), local("明体"), local("明朝"), local("Songti"),
-    local("Songti TC"), local("Song S"), local("Song T"),
-    local("STBShusong"), local("TBMincho"), local("HYMyeongJo"),
-    local("DK-SONGTI");
+    local("Songti TC"), local("Song S"), local("Song T"), local("STBShusong"),
+    local("TBMincho"), local("HYMyeongJo"), local("DK-SONGTI");
 }
 
 @font-face {
   font-family: "reader-fs";
   src: local("STFangsong"), local("FangSong"), local("FangSong_GB2312"),
     local("amasis30"), local("仿宋"), local("仿宋_GB2312"), local("Yuanti"),
-    local("Yuanti SC"), local("Yuanti TC"),
-    local("DK-FANGSONG");
+    local("Yuanti SC"), local("Yuanti TC"), local("DK-FANGSONG");
 }
 
 @font-face {
   font-family: "reader-kt";
   src: local("Kaiti SC"), local("STKaiti"), local("Caecilia"), local("楷体"),
     local("楷体_GB2312"), local("Kaiti"), local("Kaiti SC"), local("Kaiti TC"),
-    local("MKai PRC"), local("MKaiGB18030C-Medium"),
-    local("MKaiGB18030C-Bold"), local("DK-KAITI");
+    local("MKai PRC"), local("MKaiGB18030C-Medium"), local("MKaiGB18030C-Bold"),
+    local("DK-KAITI");
 }
 
 @font-face {
@@ -1082,8 +1081,7 @@ export default {
     local("Source Han Sans CN"), local("Microsoft YaHei"), local("PingFang SC"),
     local("Hiragino Sans GB"), local("黑体"), local("微软雅黑"), local("Heiti"),
     local("Heiti SC"), local("Heiti TC"), local("MYing Hei S"),
-    local("MYing Hei T"), local("TBGothic"),
-    local("DK-HEITI");
+    local("MYing Hei T"), local("TBGothic"), local("DK-HEITI");
 }
 
 *::-webkit-scrollbar {
@@ -1094,11 +1092,11 @@ export default {
   background: transparent;
 }
 *::-webkit-scrollbar-thumb {
-  background: rgba(0,0,0,.15);
+  background: rgba(0, 0, 0, 0.15);
   border-radius: 3px;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: rgba(0,0,0,.25);
+  background: rgba(0, 0, 0, 0.25);
 }
 *:focus {
   outline: none !important;
@@ -1143,7 +1141,8 @@ export default {
   background: var(--ui-accent) !important;
   border-color: var(--ui-accent) !important;
 }
-.el-button--primary:hover, .el-button--primary:focus {
+.el-button--primary:hover,
+.el-button--primary:focus {
   background: var(--ui-accent-hover) !important;
   border-color: var(--ui-accent-hover) !important;
 }
@@ -1153,7 +1152,7 @@ export default {
   transition: border-color var(--ui-transition), box-shadow var(--ui-transition) !important;
 }
 .el-input__inner:focus {
-  box-shadow: 0 0 0 3px rgba(79,110,247,.15) !important;
+  box-shadow: 0 0 0 3px rgba(79, 110, 247, 0.15) !important;
 }
 
 .el-select-dropdown {

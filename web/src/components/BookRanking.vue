@@ -326,7 +326,7 @@ export default {
 };
 </script>
 
-<style lang="scss" scoped>
+<style lang="stylus" scoped>
 .ranking-wrapper {
   height: 100%;
   display: flex;
