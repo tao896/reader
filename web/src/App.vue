@@ -111,20 +111,20 @@
 import Axios from "./plugins/axios";
 import eventBus from "./plugins/eventBus";
 import ImageViewer from "element-ui/packages/image/src/image-viewer.vue";
-import ReplaceRule from "./components/ReplaceRule.vue";
-import ReplaceRuleForm from "./components/ReplaceRuleForm.vue";
-import MPCode from "./components/MPCode.vue";
-import BookManage from "./components/BookManage.vue";
-import BookInfo from "./components/BookInfo.vue";
-import UserManage from "./components/UserManage.vue";
-import AddUser from "./components/AddUser.vue";
-import BookGroup from "./components/BookGroup.vue";
-import RssSourceList from "./components/RssSourceList.vue";
-import RssArticleList from "./components/RssArticleList.vue";
-import RssArticle from "./components/RssArticle.vue";
-import SearchBookContent from "./components/SearchBookContent.vue";
-import Bookmark from "./components/Bookmark.vue";
-import BookmarkForm from "./components/BookmarkForm.vue";
+const ReplaceRule = () => import("./components/ReplaceRule.vue");
+const ReplaceRuleForm = () => import("./components/ReplaceRuleForm.vue");
+const MPCode = () => import("./components/MPCode.vue");
+const BookManage = () => import("./components/BookManage.vue");
+const BookInfo = () => import("./components/BookInfo.vue");
+const UserManage = () => import("./components/UserManage.vue");
+const AddUser = () => import("./components/AddUser.vue");
+const BookGroup = () => import("./components/BookGroup.vue");
+const RssSourceList = () => import("./components/RssSourceList.vue");
+const RssArticleList = () => import("./components/RssArticleList.vue");
+const RssArticle = () => import("./components/RssArticle.vue");
+const SearchBookContent = () => import("./components/SearchBookContent.vue");
+const Bookmark = () => import("./components/Bookmark.vue");
+const BookmarkForm = () => import("./components/BookmarkForm.vue");
 import { CodeJar } from "codejar";
 import Prism from "prismjs";
 import "prismjs/components/prism-json";
@@ -136,56 +136,6 @@ import {
   networkFirstRequest
 } from "./plugins/helper";
 import settings from "./plugins/config";
-
-Date.prototype.format = function(fmt) {
-  var o = {
-    "M+": this.getMonth() + 1, //月份
-    "d+": this.getDate(), //日
-    "h+": this.getHours(), //小时
-    "m+": this.getMinutes(), //分
-    "s+": this.getSeconds(), //秒
-    "q+": Math.floor((this.getMonth() + 3) / 3), //季度
-    S: this.getMilliseconds() //毫秒
-  };
-  if (/(y+)/.test(fmt)) {
-    fmt = fmt.replace(
-      RegExp.$1,
-      (this.getFullYear() + "").substr(4 - RegExp.$1.length)
-    );
-  }
-  for (var k in o) {
-    if (new RegExp("(" + k + ")").test(fmt)) {
-      fmt = fmt.replace(
-        RegExp.$1,
-        RegExp.$1.length == 1 ? o[k] : ("00" + o[k]).substr(("" + o[k]).length)
-      );
-    }
-  }
-  return fmt;
-};
-
-//字符编码数值对应的存储长度：
-//UCS-2编码(16进制) UTF-8 字节流(二进制)
-//0000 - 007F       0xxxxxxx （1字节）
-//0080 - 07FF       110xxxxx 10xxxxxx （2字节）
-//0800 - FFFF       1110xxxx 10xxxxxx 10xxxxxx （3字节）
-String.prototype.getBytesLength = function() {
-  var totalLength = 0;
-  var charCode;
-  for (var i = 0; i < this.length; i++) {
-    charCode = this.charCodeAt(i);
-    if (charCode < 0x007f) {
-      totalLength++;
-    } else if (0x0080 <= charCode && charCode <= 0x07ff) {
-      totalLength += 2;
-    } else if (0x0800 <= charCode && charCode <= 0xffff) {
-      totalLength += 3;
-    } else {
-      totalLength += 4;
-    }
-  }
-  return totalLength;
-};
 
 export default {
   name: "app",
@@ -1013,6 +963,27 @@ export default {
     },
     closeViewer() {
       this.$store.commit("setPreviewImgList", false);
+    }
+  },
+  beforeDestroy() {
+    eventBus.$off("showEditor", this.showEditorListener);
+    eventBus.$off("showReplaceRuleForm", this.showReplaceRuleFormListener);
+    eventBus.$off("showReplaceRuleDialog");
+    eventBus.$off("showMPCodeDialog");
+    eventBus.$off("showBookManageDialog");
+    eventBus.$off("showBookInfoDialog");
+    eventBus.$off("showUserManageDialog");
+    eventBus.$off("showAddUserDialog");
+    eventBus.$off("showBookGroupDialog");
+    eventBus.$off("showRssArticleListDialog");
+    eventBus.$off("showRssSourceListDialog");
+    eventBus.$off("showRssArticleDialog");
+    eventBus.$off("showSearchBookContentDialog");
+    eventBus.$off("showBookmarkForm");
+    eventBus.$off("showBookmarkDialog");
+    eventBus.$off("saveReadConfig", this.saveReadConfig);
+    if (this.readConfigSyncTimer) {
+      clearTimeout(this.readConfigSyncTimer);
     }
   }
 };

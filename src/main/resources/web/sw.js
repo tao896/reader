@@ -45,8 +45,8 @@ workbox.routing.setDefaultHandler(async ({ event }) => {
     return fetch(request);
   }
 
-  const siteCache = await self.caches.open("SITE_CAHCE");
-  const opaqueCache = await self.caches.open("OPAQUE_CAHCE");
+  const siteCache = await self.caches.open("SITE_CACHE");
+  const opaqueCache = await self.caches.open("OPAQUE_CACHE");
 
   /**
    *

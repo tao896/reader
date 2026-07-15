@@ -403,7 +403,7 @@ class YueduApi : RestVerticle() {
                 // backupDir.copyRecursively(dataDir)
             }
         } catch(e: Exception) {
-            e.printStackTrace()
+            logger.error("Exception: {}", e.message, e)
         }
     }
 
@@ -471,13 +471,13 @@ class YueduApi : RestVerticle() {
                                 bookController.getBookShelfBooks(true, ns)
                             }
                         } catch (e: Exception) {
-                            e.printStackTrace()
+                            logger.error("Exception: {}", e.message, e)
                         }
                     }
                 }
                 logger.info("书架书籍更新检查结束")
             } catch (e: Exception) {
-                e.printStackTrace()
+                logger.error("Exception: {}", e.message, e)
             }
         }
     }
@@ -520,12 +520,12 @@ class YueduApi : RestVerticle() {
                             }
                         }
                     } catch (e: Exception) {
-                        e.printStackTrace()
+                        logger.error("Exception: {}", e.message, e)
                     }
                 }
                 logger.info("不活跃用户自动清理结束")
             } catch (e: Exception) {
-                e.printStackTrace()
+                logger.error("Exception: {}", e.message, e)
             }
         }
     }

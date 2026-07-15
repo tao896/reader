@@ -142,6 +142,7 @@ import { mapGetters } from "vuex";
 import Axios from "../plugins/axios";
 import { setCache } from "../plugins/cache";
 import { formatSize } from "../plugins/helper";
+import { formatDate } from "../plugins/utils";
 
 export default {
   model: {
@@ -174,7 +175,7 @@ export default {
         case "createdAt":
         case "lastLoginAt":
         case "lastModified":
-          return cellValue ? new Date(cellValue).format("yy-MM-dd hh:mm") : "";
+          return cellValue ? formatDate(new Date(cellValue), "yy-MM-dd hh:mm") : "";
         case "size":
           return row.isDirectory ? "" : formatSize(cellValue);
         default:

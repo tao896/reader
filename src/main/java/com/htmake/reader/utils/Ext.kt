@@ -92,7 +92,7 @@ fun File.unzip(descDir: String): Boolean {
         }
         return true
     } catch(e: Exception) {
-        e.printStackTrace()
+        logger.error("Exception: {}", e.message, e)
     }
     return false
 }
@@ -133,7 +133,7 @@ fun zip(files: List<File>, zipFilePath: String): Boolean {
         }
         return true
     } catch(e: Exception) {
-        e.printStackTrace()
+        logger.error("Exception: {}", e.message, e)
     } finally {
         inputStream?.close()
         zipOutputStream?.close()
@@ -202,7 +202,7 @@ fun xml2map(source: Any): MutableMap<String, Any> {
             }
         }
     } catch (e: Exception) {
-        e.printStackTrace()
+        logger.error("Exception: {}", e.message, e)
         return doc
     }
 }

@@ -3,7 +3,6 @@ import App from "./App.vue";
 import router from "./router";
 import "./plugins/element.js";
 import store from "./plugins/vuex.js";
-import "./plugins/md5.js";
 import { registerServiceWorker } from "./registerServiceWorker";
 import noCover from "./assets/imgs/noCover.jpeg";
 import noImage from "./assets/imgs/noImage.png";

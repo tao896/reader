@@ -1441,7 +1441,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
                 val lastBookSourceUrl = bookSourceList.getJsonObject(bookSourceList.size() - 1).getString("origin")
                 lastIndex = Math.max(lastIndex, getBookSourceBySourceURL(lastBookSourceUrl, userNameSpace, userBookSourceList).second)
             } catch(e: Exception) {
-                e.printStackTrace()
+                logger.error("Exception: {}", e.message, e)
             }
         }
 
@@ -1542,7 +1542,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
                 val lastBookSourceUrl = bookSourceList.getJsonObject(bookSourceList.size() - 1).getString("origin")
                 lastIndex = Math.max(lastIndex, getBookSourceBySourceURL(lastBookSourceUrl, userNameSpace, userBookSourceList).second)
             } catch(e: Exception) {
-                e.printStackTrace()
+                logger.error("Exception: {}", e.message, e)
             }
         }
 
@@ -1629,7 +1629,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
                 val info = mutableMapOf<String, Any>("sourceUrl" to bookSource.bookSourceUrl, "time" to System.currentTimeMillis(), "error" to e.toString())
                 addInvalidBookSource(bookSource.bookSourceUrl, info, userNameSpace)
 
-                e.printStackTrace()
+                logger.error("Exception: {}", e.message, e)
             }
             // }
             // logger.info("searchBookWithSource in Thread: {} Cost: {}", Thread.currentThread().name, costTime)
@@ -2346,7 +2346,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
                         }
                     }
                 } catch(e: Exception) {
-                    e.printStackTrace()
+                    logger.error("Exception: {}", e.message, e)
                 }
             }
             bookList.add(book)
@@ -2855,7 +2855,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
                 return true
             }
         } catch(e: Exception) {
-            e.printStackTrace()
+            logger.error("Exception: {}", e.message, e)
         } finally {
             descDirFile.deleteRecursively()
         }
@@ -2942,7 +2942,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
                 return descDirFile.zip(legadoHome + File.separator + "backup" + today + ".zip")
             }
         } catch(e: Exception) {
-            e.printStackTrace()
+            logger.error("Exception: {}", e.message, e)
         }  finally {
             descDirFile.deleteRecursively()
         }
@@ -3006,7 +3006,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
                 "files" to copiedFiles
             )
         } catch(e: Exception) {
-            e.printStackTrace()
+            logger.error("Exception: {}", e.message, e)
         } finally {
             descDirFile.deleteRecursively()
         }
@@ -3072,7 +3072,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
                 "files" to restoredFiles
             )
         } catch(e: Exception) {
-            e.printStackTrace()
+            logger.error("Exception: {}", e.message, e)
         } finally {
             descDirFile.deleteRecursively()
         }
@@ -3851,7 +3851,7 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
                     epubBook.coverImage = Resource(it, "Images/cover.jpg")
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                logger.error("Exception: {}", e.message, e)
             } finally {
 
             }

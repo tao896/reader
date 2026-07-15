@@ -1707,6 +1707,7 @@ import Axios from "../plugins/axios";
 import { setCache, getCache } from "../plugins/cache";
 import eventBus from "../plugins/eventBus";
 import { formatSize, LimitResquest } from "../plugins/helper";
+import { formatDate, getBytesLength } from "../plugins/utils";
 const buildURL = require("axios/lib/helpers/buildURL");
 import { isInContainer } from "element-ui/src/utils/dom";
 import Vue from "vue";
@@ -3313,7 +3314,7 @@ export default {
         case "createdAt":
         case "lastLoginAt":
         case "lastModified":
-          return cellValue ? new Date(cellValue).format("yy-MM-dd hh:mm") : "";
+          return cellValue ? formatDate(new Date(cellValue), "yy-MM-dd hh:mm") : "";
         case "size":
           return row.isDirectory ? "" : formatSize(cellValue);
         default:
@@ -3864,9 +3865,9 @@ export default {
       return window.$cacheStorage
         .iterate(function(value, key) {
           if (!match || key.indexOf(match) >= 0) {
-            totalBytes += JSON.stringify(value).getBytesLength();
+            totalBytes += getBytesLength(JSON.stringify(value));
             if (key.startsWith("localCache@")) {
-              cacheBytes += JSON.stringify(value).getBytesLength();
+              cacheBytes += getBytesLength(JSON.stringify(value));
             }
           }
         })
@@ -3887,7 +3888,7 @@ export default {
         .iterate(function(value, key) {
           if (!match || key.indexOf(match) >= 0) {
             if (key.startsWith("localCache@")) {
-              cacheBytes += JSON.stringify(value).getBytesLength();
+              cacheBytes += getBytesLength(JSON.stringify(value));
               window.$cacheStorage.removeItem(key);
             }
           }

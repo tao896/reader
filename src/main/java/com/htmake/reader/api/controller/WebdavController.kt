@@ -214,7 +214,7 @@ class WebdavController(coroutineContext: CoroutineContext, router: Router, onHan
             return true
         }
         var authorization = context.request().getHeader("Authorization")
-        logger.info("authorization: {}", authorization)
+        logger.info("authorization: [REDACTED]")
         if (authorization == null || authorization.isEmpty()) {
             return false
         }
