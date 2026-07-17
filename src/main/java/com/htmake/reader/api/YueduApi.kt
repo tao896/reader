@@ -24,6 +24,7 @@ import com.htmake.reader.api.controller.ReplaceRuleController
 import com.htmake.reader.api.controller.BookmarkController
 import com.htmake.reader.api.controller.RankingController
 import com.htmake.reader.api.controller.HotSearchController
+import com.htmake.reader.api.controller.AiController
 import com.htmake.reader.utils.error
 import com.htmake.reader.utils.success
 import com.htmake.reader.utils.getStorage
@@ -139,6 +140,14 @@ class YueduApi : RestVerticle() {
         val bookmarkController = BookmarkController(coroutineContext)
         val rankingController = RankingController(coroutineContext)
         val hotSearchController = HotSearchController(coroutineContext)
+        val aiController = AiController(coroutineContext, bookController)
+
+        /** 全本 AI */
+        router.get("/reader3/getAiConfig").coroutineHandler { aiController.getAiConfig(it) }
+        router.post("/reader3/saveAiConfig").coroutineHandler { aiController.saveAiConfig(it) }
+        router.post("/reader3/testAiConfig").coroutineHandler { aiController.testAiConfig(it) }
+        router.get("/reader3/getBookAiStatus").coroutineHandler { aiController.getBookAiStatus(it) }
+        router.post("/reader3/askBookAiSSE").coroutineHandlerWithoutRes { aiController.askBookAiSSE(it) }
 
         /** 书源模块 */
         router.post("/reader3/saveBookSource").coroutineHandler { bookSourceController.saveBookSource(it) }

@@ -111,6 +111,16 @@
         </el-popover>
         <div
           class="tool-icon"
+          v-if="aiBookTypeSupported"
+          @click="bookAiVisible = true"
+        >
+          <div class="tool-el-icon">
+            <i class="el-icon-chat-dot-round"></i>
+          </div>
+          <div class="icon-text">AI</div>
+        </div>
+        <div
+          class="tool-icon"
           @click="toTop(0)"
           v-if="!$store.state.miniInterface"
         >
@@ -134,6 +144,15 @@
     <div class="read-bar" :style="rightBarTheme">
       <div class="float-btn-zone">
         <div class="float-left-btn-zone">
+          <div
+            class="float-btn"
+            :style="popupAbsoluteBtnStyle"
+            @click="bookAiVisible = true"
+            v-if="$store.state.miniInterface && aiBookTypeSupported"
+            title="全本 AI"
+          >
+            <i class="el-icon-chat-dot-round"></i>
+          </div>
           <div
             class="float-btn"
             :style="popupAbsoluteBtnStyle"
@@ -512,6 +531,13 @@
         </el-button>
       </div>
     </el-dialog>
+    <BookAiDialog
+      v-model="bookAiVisible"
+      :book="readingBook"
+      :chapterIndex="chapterIndex"
+      @open-settings="openAiSettingsFromReader"
+      @open-source="openAiSource"
+    />
     <div
       class="chapter"
       ref="content"
@@ -586,6 +612,7 @@ import ReadSettings from "../components/ReadSettings.vue";
 import BookSource from "../components/BookSource.vue";
 import BookShelf from "../components/BookShelf.vue";
 import Content from "../components/Content.vue";
+import BookAiDialog from "../components/BookAiDialog.vue";
 import Axios from "../plugins/axios";
 import jump from "../plugins/jump";
 import Animate from "../plugins/animate";
@@ -619,7 +646,8 @@ export default {
     BookSource,
     BookShelf,
     Content,
-    ReadSettings
+    ReadSettings,
+    BookAiDialog
   },
   mounted() {
     window.readerPage = this;
@@ -912,6 +940,7 @@ export default {
       showTextFilterPrompting: false,
       showAddBookmarking: false,
       dictionaryVisible: false,
+      bookAiVisible: false,
       dictionaryLoading: false,
       dictionaryError: "",
       dictionaryLookupId: 0,
@@ -1245,6 +1274,22 @@ export default {
       return ((this.$store.getters.readingBook || {}).bookUrl || "")
         .toLowerCase()
         .endsWith(".epub");
+    },
+    aiBookTypeSupported() {
+      const book = this.readingBook || {};
+      const bookUrl = String(book.bookUrl || "").toLowerCase();
+      const originName = String(book.originName || "").toLowerCase();
+      if (!bookUrl || Number(book.type || 0) !== 0) return false;
+      if (bookUrl.endsWith(".cbz") || originName.endsWith(".cbz")) return false;
+      if (book.origin === "loc_book") {
+        return (
+          bookUrl.endsWith(".txt") ||
+          bookUrl.endsWith(".epub") ||
+          originName.endsWith(".txt") ||
+          originName.endsWith(".epub")
+        );
+      }
+      return true;
     },
     isCbz() {
       return (
@@ -2985,7 +3030,8 @@ export default {
         this.popBookShelfVisible ||
         this.popCataVisible ||
         this.readSettingsVisible ||
-        this.dictionaryVisible
+        this.dictionaryVisible ||
+        this.bookAiVisible
       ) {
         if (this.isEpub) {
           this.popBookSourceVisible = false;
@@ -3077,6 +3123,7 @@ export default {
         this.popCataVisible ||
         this.readSettingsVisible ||
         this.dictionaryVisible ||
+        this.bookAiVisible ||
         this.selectionActionPrompting ||
         this.showTextFilterPrompting
       ) {
@@ -4817,6 +4864,64 @@ export default {
       );
       book = Object.assign(book, shelfBook || {});
       eventBus.$emit("showSearchBookContentDialog", book, keyword || "");
+    },
+    openAiSettingsFromReader() {
+      this.bookAiVisible = false;
+      this.prepareToLeaveReader();
+      this.$router.push({ path: "/", query: { openAiSettings: "1" } });
+    },
+    openAiSource(source) {
+      if (!source || typeof source.chapterIndex !== "number") return;
+      const locate = () => {
+        this.$nextTick(() => {
+          if (!this.locateAiSourceExcerpt(source)) {
+            this.toTop(0);
+            this.$message.info(
+              "已跳转到引用章节，未能精确定位时请根据摘录查找原文"
+            );
+          }
+        });
+      };
+      if (this.chapterIndex === source.chapterIndex) {
+        locate();
+        return;
+      }
+      if (this.isScrollRead) {
+        this.scrollStartChapterIndex = source.chapterIndex;
+        this.computeShowChapterList().then(locate);
+        return;
+      }
+      this.$once("showContent", locate);
+      this.getContent(source.chapterIndex);
+    },
+    locateAiSourceExcerpt(source) {
+      if (!this.$refs.bookContentRef || !source.excerpt) return false;
+      const normalize = value =>
+        String(value || "")
+          .replace(/\s+/g, "")
+          .replace(/[，。！？；：、“”‘’《》（）()]/g, "")
+          .split("[")
+          .join("")
+          .split("]")
+          .join("");
+      const excerpt = normalize(source.excerpt.replace(/…$/, ""));
+      if (!excerpt) return false;
+      const candidates = [
+        excerpt.slice(0, 36),
+        excerpt.slice(12, 48),
+        excerpt.slice(-36)
+      ].filter(value => value.length >= 8);
+      const list = this.$refs.bookContentRef.$el.querySelectorAll(
+        ".reading-chapter h3, .reading-chapter p, h3, p"
+      );
+      for (let index = 0; index < list.length; index++) {
+        const paragraph = normalize(list[index].innerText);
+        if (candidates.some(candidate => paragraph.indexOf(candidate) >= 0)) {
+          this.showParagraph(list[index], true);
+          return true;
+        }
+      }
+      return false;
     },
     showMatchKeyword(data) {
       if (this._inactive) {

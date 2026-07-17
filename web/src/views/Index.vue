@@ -196,6 +196,7 @@
                 <div class="modern-action-section">
                   <div class="modern-action-title">系统</div>
                   <div class="modern-action-grid">
+                    <button @click="showAiSettings">AI 设置</button>
                     <button @click="setIP">后端设置</button>
                     <button @click="init(true)">刷新缓存</button>
                     <button @click="clearCache('bookSourceList')">
@@ -410,6 +411,21 @@
                 @click="setIP"
               >
                 {{ connectStatus }}
+              </el-tag>
+            </div>
+          </div>
+          <div class="setting-wrapper">
+            <div class="setting-title">
+              AI 设置
+            </div>
+            <div class="setting-item">
+              <el-tag
+                type="primary"
+                :effect="isNight ? 'dark' : 'light'"
+                class="setting-btn"
+                @click="showAiSettings"
+              >
+                配置全本 AI
               </el-tag>
             </div>
           </div>
@@ -1975,6 +1991,10 @@ export default {
   activated() {
     document.title = "阅读";
     this.scanCacheStorage();
+    if (this.$route.query.openAiSettings) {
+      eventBus.$emit("showAiSettings");
+      this.$router.replace({ path: "/" });
+    }
   },
   deactivated() {
     this.closeBookContextMenu();
@@ -1990,6 +2010,9 @@ export default {
   methods: {
     init(refresh) {
       this.$root.$children[0].init(refresh);
+    },
+    showAiSettings() {
+      eventBus.$emit("showAiSettings");
     },
     setIP() {
       this.$prompt("请输入接口地址 ( 如：localhost:8080/reader3 )", "提示", {

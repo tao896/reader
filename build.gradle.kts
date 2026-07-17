@@ -101,6 +101,7 @@ dependencies {
     // 网络
     implementation("com.squareup.okhttp3:okhttp:4.9.1")
     implementation("com.squareup.okhttp3:logging-interceptor:4.1.0")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.9.1")
     // Retrofit
     implementation("com.squareup.retrofit2:retrofit:2.6.1")
     implementation("com.julienviet:retrofit-vertx:1.1.3")

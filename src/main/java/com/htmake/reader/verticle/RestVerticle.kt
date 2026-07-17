@@ -87,7 +87,11 @@ abstract class RestVerticle : CoroutineVerticle() {
         router.route().handler(LoggerHandler.create(LoggerFormat.DEFAULT));
         router.route("/reader3/*").handler {
             logger.info("{} {}", it.request().rawMethod(), URLDecoder.decode(it.request().absoluteURI(), "UTF-8"))
-            val sensitiveBody = it.request().path() == "/reader3/setWeiboHotSearchSession"
+            val sensitiveBody = it.request().path() in setOf(
+                "/reader3/setWeiboHotSearchSession",
+                "/reader3/saveAiConfig",
+                "/reader3/askBookAiSSE"
+            )
             if (sensitiveBody && it.bodyAsString.isNotEmpty()) {
                 logger.info("Request body: [REDACTED]")
             } else if (!it.request().rawMethod().equals("PUT") && (it.fileUploads() == null || it.fileUploads().isEmpty()) && it.bodyAsString.length > 0 && it.bodyAsString.length < 1000) {

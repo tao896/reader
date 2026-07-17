@@ -104,6 +104,8 @@
     />
 
     <Bookmark v-model="showBookmarkDialog" :book="bookmarkInBook" />
+
+    <AiSettings v-model="showAiSettingsDialog" />
   </div>
 </template>
 
@@ -125,6 +127,7 @@ const RssArticle = () => import("./components/RssArticle.vue");
 const SearchBookContent = () => import("./components/SearchBookContent.vue");
 const Bookmark = () => import("./components/Bookmark.vue");
 const BookmarkForm = () => import("./components/BookmarkForm.vue");
+const AiSettings = () => import("./components/AiSettings.vue");
 import { CodeJar } from "codejar";
 import Prism from "prismjs";
 import "prismjs/components/prism-json";
@@ -154,7 +157,8 @@ export default {
     RssArticle,
     SearchBookContent,
     Bookmark,
-    BookmarkForm
+    BookmarkForm,
+    AiSettings
   },
   data() {
     return {
@@ -204,6 +208,7 @@ export default {
       bookmark: {},
       isAddBookmark: true,
       bookmarkInBook: {},
+      showAiSettingsDialog: false,
       readConfigSyncTimer: null,
       readConfigSyncErrorTime: 0,
       readConfigSyncPending: false,
@@ -338,6 +343,9 @@ export default {
     eventBus.$on("showBookmarkDialog", book => {
       this.showBookmarkDialog = true;
       this.bookmarkInBook = book;
+    });
+    eventBus.$on("showAiSettings", () => {
+      this.showAiSettingsDialog = true;
     });
     eventBus.$on("saveReadConfig", this.saveReadConfig);
   },
@@ -981,6 +989,7 @@ export default {
     eventBus.$off("showSearchBookContentDialog");
     eventBus.$off("showBookmarkForm");
     eventBus.$off("showBookmarkDialog");
+    eventBus.$off("showAiSettings");
     eventBus.$off("saveReadConfig", this.saveReadConfig);
     if (this.readConfigSyncTimer) {
       clearTimeout(this.readConfigSyncTimer);

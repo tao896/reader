@@ -1245,6 +1245,78 @@ class BookController(coroutineContext: CoroutineContext): BaseController(corouti
         return returnData.setData(content)
     }
 
+    /**
+     * Shared chapter-text access used by full-book AI. It deliberately follows the
+     * same shelf, chapter-list, local-book and network cache paths as the reader.
+     * Network content is only fetched when [allowNetwork] is true.
+     */
+    suspend fun getChapterTextForAi(
+        bookInfo: Book,
+        chapterList: List<BookChapter>,
+        chapterIndex: Int,
+        userNameSpace: String,
+        bookSource: String?,
+        allowNetwork: Boolean
+    ): String {
+        if (chapterIndex !in chapterList.indices) {
+            throw IllegalArgumentException("章节不存在")
+        }
+        val chapterInfo = chapterList[chapterIndex]
+        bookInfo.setRootDir(getWorkDir())
+        bookInfo.setUserNameSpace(userNameSpace)
+        if (bookInfo.isLocalBook()) {
+            if (!bookInfo.isLocalTxt() && !bookInfo.isLocalEpub()) {
+                throw IllegalArgumentException("当前本地书籍类型暂不支持全文 AI")
+            }
+            val localFile = bookInfo.getLocalFile()
+            if (!localFile.exists()) {
+                throw IllegalStateException("本地源书籍文件不存在")
+            }
+            if (bookInfo.isEpub()) {
+                if (!extractEpub(bookInfo)) {
+                    throw IllegalStateException("Epub书籍解压失败")
+                }
+                val epubRootDir = bookInfo.getEpubRootDir()
+                val chapterFilePath = if (epubRootDir.isEmpty()) {
+                    getWorkDir(bookInfo.bookUrl, "index", chapterInfo.url)
+                } else {
+                    getWorkDir(bookInfo.bookUrl, "index", epubRootDir, chapterInfo.url)
+                }
+                val chapterFile = File(chapterFilePath)
+                if (!chapterFile.exists() || !chapterFile.isFile) {
+                    throw IllegalStateException("章节文件不存在")
+                }
+                return chapterFile.readText(Charsets.UTF_8)
+            }
+            return LocalBook.getContent(bookInfo, chapterInfo)
+                ?: throw IllegalStateException("获取章节内容失败")
+        }
+
+        if (bookInfo.type != 0 || bookInfo.isCbz()) {
+            throw IllegalArgumentException("当前类型暂不支持全文 AI")
+        }
+        val cacheFile = File(getChapterCacheDir(bookInfo, userNameSpace), "$chapterIndex.txt")
+        if (cacheFile.exists()) {
+            return cacheFile.readText(Charsets.UTF_8)
+        }
+        if (!allowNetwork) {
+            throw IllegalStateException("章节尚未缓存")
+        }
+        if (bookSource.isNullOrEmpty()) {
+            throw IllegalStateException("未配置书源")
+        }
+        val nextChapterUrl = chapterList.getOrNull(chapterIndex + 1)?.url
+        val content = WebBook(bookSource, appConfig.debugLog)
+            .getBookContent(bookInfo, chapterInfo, nextChapterUrl)
+        cacheFile.writeText(content, Charsets.UTF_8)
+        return content
+    }
+
+    fun isBookSupportedByAi(bookInfo: Book): Boolean {
+        if (bookInfo.type != 0 || bookInfo.isCbz()) return false
+        return !bookInfo.isLocalBook() || bookInfo.isLocalTxt() || bookInfo.isLocalEpub()
+    }
+
     fun fillBookRuntimeInfoFromCache(bookInfo: Book?, cacheInfo: Book?): Boolean {
         if (bookInfo == null || cacheInfo == null) {
             return false
