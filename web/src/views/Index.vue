@@ -5329,6 +5329,11 @@ export default {
       gap: 10px;
       flex: 1;
       min-width: 280px;
+
+      .search-history-wrapper {
+        flex: 1;
+        min-width: 0;
+      }
     }
 
     .modern-source-group-select {
