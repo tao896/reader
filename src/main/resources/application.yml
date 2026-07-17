@@ -18,6 +18,9 @@ reader:
     userBookLimit: 200
     debugLog: false
     autoClearInactiveUser: 0
+    # corsAllowedOrigins:
+    #   - "http://localhost:8081"
+    #   - "https://your-domain.com"
 
   server:
     port: 8080

@@ -18,6 +18,7 @@ class AppConfig {
     var userBookLimit = 200    // 用户书籍上限
     var debugLog = false  // 调试日志
     var autoClearInactiveUser = 0  // 自动清理不活跃用户
+    var corsAllowedOrigins: List<String> = emptyList()
 
     var exportUseReplace = false // 导出不使用净化
     var exportCharset = "UTF-8" // 导出字符集

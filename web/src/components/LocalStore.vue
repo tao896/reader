@@ -144,7 +144,9 @@ export default {
         case "createdAt":
         case "lastLoginAt":
         case "lastModified":
-          return cellValue ? formatDate(new Date(cellValue), "yy-MM-dd hh:mm") : "";
+          return cellValue
+            ? formatDate(new Date(cellValue), "yy-MM-dd hh:mm")
+            : "";
         case "size":
           return row.isDirectory ? "" : formatSize(cellValue);
         default:

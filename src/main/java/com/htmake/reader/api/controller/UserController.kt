@@ -35,6 +35,7 @@ import com.htmake.reader.utils.unzip
 import com.htmake.reader.utils.zip
 import com.htmake.reader.utils.jsonEncode
 import com.htmake.reader.utils.getRelativePath
+import com.htmake.reader.utils.RateLimiter
 import com.htmake.reader.verticle.RestVerticle
 import com.htmake.reader.SpringEvent
 import org.springframework.stereotype.Component
@@ -72,6 +73,7 @@ private val logger = KotlinLogging.logger {}
 
 class UserController(coroutineContext: CoroutineContext): BaseController(coroutineContext) {
     val userMaxCount = 50
+    private val loginRateLimiter = RateLimiter(maxAttempts = 10, windowMillis = 5 * 60 * 1000)
 
     private fun getUserLimit(context: RoutingContext): Int {
         if (context.request().host().equals("reader.htmake.com")) {
@@ -82,6 +84,10 @@ class UserController(coroutineContext: CoroutineContext): BaseController(corouti
 
     suspend fun login(context: RoutingContext): ReturnData {
         val returnData = ReturnData()
+        val clientIp = context.request().remoteAddress()?.host() ?: "unknown"
+        if (!loginRateLimiter.isAllowed(clientIp)) {
+            return returnData.setErrorMsg("请求过于频繁，请稍后再试")
+        }
         val username = context.bodyAsJson.getString("username", "") ?: ""
         val password = context.bodyAsJson.getString("password", "") ?: ""
         val isLogin = context.bodyAsJson.getBoolean("isLogin", false) ?: false

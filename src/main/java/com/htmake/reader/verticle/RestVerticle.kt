@@ -1,6 +1,7 @@
 package com.htmake.reader.verticle
 
 import io.vertx.core.http.HttpMethod
+import io.vertx.core.http.HttpServerOptions
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.Router
 import io.vertx.ext.web.RoutingContext
@@ -14,8 +15,10 @@ import io.vertx.kotlin.coroutines.CoroutineVerticle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import mu.KotlinLogging
+import com.htmake.reader.config.AppConfig
 import com.htmake.reader.utils.error
 import com.htmake.reader.utils.success
+import com.htmake.reader.utils.SpringContextUtils
 import java.net.URLDecoder
 
 
@@ -27,16 +30,26 @@ abstract class RestVerticle : CoroutineVerticle() {
 
     open var port: Int = 8080
 
+    private fun isOriginAllowed(origin: String, allowedOrigins: List<String>): Boolean {
+        if (allowedOrigins.isEmpty()) return true
+        return allowedOrigins.any { allowed ->
+            if (allowed == "*") true
+            else origin.equals(allowed, ignoreCase = true)
+        }
+    }
+
     override suspend fun start() {
         super.start()
         router = Router.router(vertx)
         val cookieName = "reader.session"
+        val appConfig = SpringContextUtils.getBean("appConfig", AppConfig::class.java)
+        val allowedOrigins = appConfig?.corsAllowedOrigins ?: emptyList()
 
         // CORS support
         router.route().handler {
             it.addHeadersEndHandler { _ ->
                 val origin = it.request().getHeader("Origin")
-                if (origin != null && origin.isNotEmpty()) {
+                if (origin != null && origin.isNotEmpty() && isOriginAllowed(origin, allowedOrigins)) {
                     var res = it.response()
                     res.putHeader("Access-Control-Allow-Origin", origin)
                     res.putHeader("Access-Control-Allow-Credentials", "true")
@@ -97,9 +110,13 @@ abstract class RestVerticle : CoroutineVerticle() {
         }
 
         logger.info("port: {}", port)
-        vertx.createHttpServer().requestHandler(router).exceptionHandler{error ->
+        val serverOptions = HttpServerOptions()
+            .setCompressionSupported(true)
+            .setCompressionLevel(6)
+            .setPort(port)
+        vertx.createHttpServer(serverOptions).requestHandler(router).exceptionHandler{error ->
             onException(error)
-        }.listen(port) { res ->
+        }.listen { res ->
             if (res.succeeded()) {
                 logger.info("Server running at: http://localhost:{}", port);
                 logger.info("Web reader running at: http://localhost:{}", port);

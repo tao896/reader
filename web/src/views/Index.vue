@@ -246,15 +246,38 @@
             清风不识字，何故乱翻书
           </div>
           <div class="search-wrapper">
-            <el-input
-              size="mini"
-              placeholder="搜索书籍"
-              v-model="search"
-              class="search-input"
-              @keyup.enter.native="searchBook(1)"
-            >
-              <i slot="prefix" class="el-input__icon el-icon-search"></i>
-            </el-input>
+            <div class="search-history-wrapper">
+              <el-input
+                size="mini"
+                placeholder="搜索书籍"
+                v-model="search"
+                class="search-input"
+                @keyup.enter.native="searchBook(1)"
+                @focus="showSearchHistory = true"
+                @blur="hideSearchHistory"
+              >
+                <i slot="prefix" class="el-input__icon el-icon-search"></i>
+              </el-input>
+              <div
+                class="search-history-dropdown"
+                v-if="showSearchHistory && searchHistory.length && !search"
+              >
+                <div class="search-history-header">
+                  <span>搜索历史</span>
+                  <span class="search-history-clear" @click="clearSearchHistory"
+                    >清空</span
+                  >
+                </div>
+                <div
+                  class="search-history-item"
+                  v-for="(item, index) in searchHistory"
+                  :key="'sh2-' + index"
+                  @mousedown.prevent="selectSearchHistory(item)"
+                >
+                  {{ item }}
+                </div>
+              </div>
+            </div>
           </div>
           <div class="setting-wrapper">
             <div class="setting-item">
@@ -758,15 +781,38 @@
             >
             </el-option>
           </el-select>
-          <el-input
-            size="small"
-            placeholder="搜索书名、作者、章节、书源"
-            v-model="search"
-            class="modern-search-input"
-            @keyup.enter.native="searchBook(1)"
-          >
-            <i slot="prefix" class="el-input__icon el-icon-search"></i>
-          </el-input>
+          <div class="search-history-wrapper">
+            <el-input
+              size="small"
+              placeholder="搜索书名、作者、章节、书源"
+              v-model="search"
+              class="modern-search-input"
+              @keyup.enter.native="searchBook(1)"
+              @focus="showSearchHistory = true"
+              @blur="hideSearchHistory"
+            >
+              <i slot="prefix" class="el-input__icon el-icon-search"></i>
+            </el-input>
+            <div
+              class="search-history-dropdown"
+              v-if="showSearchHistory && searchHistory.length && !search"
+            >
+              <div class="search-history-header">
+                <span>搜索历史</span>
+                <span class="search-history-clear" @click="clearSearchHistory"
+                  >清空</span
+                >
+              </div>
+              <div
+                class="search-history-item"
+                v-for="(item, index) in searchHistory"
+                :key="'sh-' + index"
+                @mousedown.prevent="selectSearchHistory(item)"
+              >
+                {{ item }}
+              </div>
+            </div>
+          </div>
         </div>
         <div class="modern-top-actions">
           <button
@@ -1723,6 +1769,8 @@ export default {
   data() {
     return {
       search: "",
+      searchHistory: [],
+      showSearchHistory: false,
       searchTypeList: [
         { name: "单源搜索", value: "single" },
         { name: "多源搜索(过滤书名/作者名)", value: "multi" }
@@ -1903,6 +1951,7 @@ export default {
     this.navigationClass =
       this.collapseMenu && !this.showNavigation ? "navigation-hidden" : "";
     window.shelfPage = this;
+    this.loadSearchHistory();
     this.init();
     eventBus.$on("onSourceFileChange", (event, isRssSource) => {
       if (this._inactive) {
@@ -2190,6 +2239,38 @@ export default {
           )
       };
     },
+    loadSearchHistory() {
+      try {
+        const saved = localStorage.getItem("searchHistory");
+        this.searchHistory = saved ? JSON.parse(saved) : [];
+      } catch (e) {
+        this.searchHistory = [];
+      }
+    },
+    addSearchHistory(keyword) {
+      if (!keyword || !keyword.trim()) return;
+      keyword = keyword.trim();
+      this.searchHistory = this.searchHistory.filter(k => k !== keyword);
+      this.searchHistory.unshift(keyword);
+      if (this.searchHistory.length > 20) {
+        this.searchHistory = this.searchHistory.slice(0, 20);
+      }
+      localStorage.setItem("searchHistory", JSON.stringify(this.searchHistory));
+    },
+    clearSearchHistory() {
+      this.searchHistory = [];
+      localStorage.removeItem("searchHistory");
+    },
+    hideSearchHistory() {
+      setTimeout(() => {
+        this.showSearchHistory = false;
+      }, 150);
+    },
+    selectSearchHistory(keyword) {
+      this.search = keyword;
+      this.showSearchHistory = false;
+      this.searchBook(1);
+    },
     searchBook(page) {
       if (!this.$store.state.connected) {
         this.$message.error("后端未连接");
@@ -2210,6 +2291,7 @@ export default {
         this.searchPage = page;
       }
       page = this.searchPage;
+      this.addSearchHistory(this.search);
       if (page === 1) {
         // 重新搜索
         this.searchLastIndex = -1;
@@ -3314,7 +3396,9 @@ export default {
         case "createdAt":
         case "lastLoginAt":
         case "lastModified":
-          return cellValue ? formatDate(new Date(cellValue), "yy-MM-dd hh:mm") : "";
+          return cellValue
+            ? formatDate(new Date(cellValue), "yy-MM-dd hh:mm")
+            : "";
         case "size":
           return row.isDirectory ? "" : formatSize(cellValue);
         default:
@@ -6286,6 +6370,57 @@ export default {
 @media screen and (max-width: 480px) {
   .source-container.table-container {
     margin: -15px -5px;
+  }
+}
+
+.search-history-wrapper {
+  position: relative;
+}
+
+.search-history-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 2000;
+  background: var(--ui-surface, #fff);
+  border: 1px solid var(--ui-border, #dcdfe6);
+  border-radius: 8px;
+  margin-top: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  max-height: 300px;
+  overflow-y: auto;
+
+  .search-history-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    font-size: 12px;
+    color: var(--ui-text-secondary, #909399);
+    border-bottom: 1px solid var(--ui-border, #ebeef5);
+
+    .search-history-clear {
+      cursor: pointer;
+
+      &:hover {
+        color: var(--ui-text, #303133);
+      }
+    }
+  }
+
+  .search-history-item {
+    padding: 8px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    color: var(--ui-text, #606266);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+
+    &:hover {
+      background: var(--ui-hover, #f5f7fa);
+    }
   }
 }
 </style>

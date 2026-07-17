@@ -193,7 +193,7 @@ class ReaderUIApplication: Application() {
                 }
             }
         } catch(e: Exception) {
-            e.printStackTrace()
+            logger.error("Exception: {}", e.message, e)
         }
     }
 
@@ -267,7 +267,7 @@ class ReaderUIApplication: Application() {
                 windowConfigSource.put("reader.app.debug", debug as Boolean)
             }
         } catch(e: Exception) {
-            e.printStackTrace()
+            logger.error("Exception: {}", e.message, e)
         }
 
         logger.info("windowConfigSource: {}", windowConfigSource)
@@ -333,7 +333,7 @@ class ReaderUIApplication: Application() {
             }
         } catch(e: Exception) {
             showAlert("窗口配置加载失败，请检查窗口配置文件(windowConfig.json)", false)
-            e.printStackTrace()
+            logger.error("Exception: {}", e.message, e)
         }
         return Size(width, height)
     }

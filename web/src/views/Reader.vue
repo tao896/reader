@@ -1090,9 +1090,11 @@ export default {
     },
     readingProgress() {
       if (this.catalog && this.catalog.length) {
-        return (
-          parseInt(((this.chapterIndex + 1) * 100) / this.catalog.length) + "%"
-        );
+        var chapterProgress =
+          this.totalPages > 1 ? (this.currentPage - 1) / this.totalPages : 0;
+        var progress =
+          ((this.chapterIndex + chapterProgress) / this.catalog.length) * 100;
+        return progress.toFixed(1) + "%";
       } else {
         return "";
       }
