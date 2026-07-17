@@ -1794,8 +1794,25 @@ export default {
         refresh: refresh ? 1 : 0
       };
       if (this.$route.query.search) {
-        // 来自搜索结果，请求需要带上 书源链接
-        params.bookSourceUrl = this.$store.getters.readingBook.origin;
+        // 来自搜索结果，请求需要带上书源和搜索阶段生成的解析变量。
+        const readingBook = this.$store.getters.readingBook;
+        params.bookSourceUrl = readingBook.origin;
+        params.book = {
+          bookUrl: readingBook.bookUrl,
+          name: readingBook.name,
+          author: readingBook.author,
+          origin: readingBook.origin,
+          originName: readingBook.originName,
+          type: readingBook.type,
+          coverUrl: readingBook.coverUrl,
+          tocUrl: readingBook.tocUrl,
+          intro: readingBook.intro,
+          kind: readingBook.kind,
+          wordCount: readingBook.wordCount,
+          latestChapterTitle: readingBook.latestChapterTitle,
+          variable: readingBook.variable,
+          originOrder: readingBook.originOrder
+        };
       }
       return networkFirstRequest(
         () => Axios.post(this.api + "/getChapterList", params),

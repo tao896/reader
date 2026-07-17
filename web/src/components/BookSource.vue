@@ -110,10 +110,17 @@ export default {
       }
     },
     readingBook(val, oldVal) {
-      if (val.bookUrl !== oldVal.bookUrl) {
+      const bookChanged =
+        this.getBookSourceKey(val || {}) !==
+        this.getBookSourceKey(oldVal || {});
+      if (bookChanged) {
         this.closeSearchEventSource();
         this.loading = false;
+        this.bookSource = [];
         this.bookSourceGroupIndexMap = {};
+        if (this.visible && val && val.bookUrl) {
+          this.getBookSource();
+        }
       }
     }
   },
@@ -136,14 +143,34 @@ export default {
       this.searchEventSource = null;
       this.loadingMore = false;
     },
-    isActiveSearchRequest(requestToken, bookUrl) {
+    isActiveSearchRequest(requestToken, bookIdentity) {
       return (
         this.searchRequestToken === requestToken &&
-        this.$store.getters.readingBook.bookUrl === bookUrl
+        this.getBookSourceKey(this.$store.getters.readingBook || {}) ===
+          bookIdentity
       );
     },
     getBookSourceKey(searchBook) {
       return [searchBook.origin || "", searchBook.bookUrl || ""].join("@@");
+    },
+    getReadingBookRequest() {
+      const book = this.$store.getters.readingBook || {};
+      return {
+        bookUrl: book.bookUrl,
+        name: book.name,
+        author: book.author,
+        origin: book.origin,
+        originName: book.originName,
+        type: book.type,
+        coverUrl: book.coverUrl,
+        tocUrl: book.tocUrl,
+        intro: book.intro,
+        kind: book.kind,
+        wordCount: book.wordCount,
+        latestChapterTitle: book.latestChapterTitle,
+        variable: book.variable,
+        originOrder: book.originOrder
+      };
     },
     isSelected(searchBook) {
       const readingBook = this.$store.getters.readingBook;
@@ -153,11 +180,13 @@ export default {
       );
     },
     getBookSource(refresh) {
-      const requestBookUrl = this.$store.getters.readingBook.bookUrl;
+      const requestBook = this.getReadingBookRequest();
+      const requestBookIdentity = this.getBookSourceKey(requestBook);
       Axios.post(
         this.api + `/getAvailableBookSource`,
         {
-          url: requestBookUrl,
+          url: requestBook.bookUrl,
+          book: requestBook,
           refresh: refresh ? 1 : 0
         },
         {
@@ -165,7 +194,10 @@ export default {
         }
       ).then(
         res => {
-          if (requestBookUrl !== this.$store.getters.readingBook.bookUrl) {
+          if (
+            requestBookIdentity !==
+            this.getBookSourceKey(this.$store.getters.readingBook || {})
+          ) {
             return;
           }
           this.loading = false;
@@ -179,7 +211,10 @@ export default {
           }
         },
         error => {
-          if (requestBookUrl !== this.$store.getters.readingBook.bookUrl) {
+          if (
+            requestBookIdentity !==
+            this.getBookSourceKey(this.$store.getters.readingBook || {})
+          ) {
             return;
           }
           this.loading = false;
@@ -232,6 +267,12 @@ export default {
                   : typeof searchBook.type !== "undefined"
                   ? searchBook.type
                   : book.type,
+              variable:
+                typeof newBookInfo.variable !== "undefined"
+                  ? newBookInfo.variable
+                  : typeof searchBook.variable !== "undefined"
+                  ? searchBook.variable
+                  : book.variable,
               coverUrl:
                 newBookInfo.customCoverUrl ||
                 newBookInfo.coverUrl ||
@@ -269,13 +310,15 @@ export default {
     },
     loadMoreSource() {
       if (this.loadingMore) return;
-      const requestBookUrl = this.$store.getters.readingBook.bookUrl;
+      const requestBook = this.getReadingBookRequest();
+      const requestBookIdentity = this.getBookSourceKey(requestBook);
       const requestBookSourceGroup = this.bookSourceGroup;
       this.loadingMore = true;
       Axios.post(
         this.api + `/searchBookSource`,
         {
-          url: requestBookUrl,
+          url: requestBook.bookUrl,
+          book: requestBook,
           bookSourceGroup: requestBookSourceGroup,
           lastIndex: this.bookSourceGroupIndexMap[requestBookSourceGroup]
         },
@@ -284,7 +327,10 @@ export default {
         }
       ).then(
         res => {
-          if (requestBookUrl !== this.$store.getters.readingBook.bookUrl) {
+          if (
+            requestBookIdentity !==
+            this.getBookSourceKey(this.$store.getters.readingBook || {})
+          ) {
             return;
           }
           this.loadingMore = false;
@@ -303,7 +349,10 @@ export default {
           }
         },
         error => {
-          if (requestBookUrl !== this.$store.getters.readingBook.bookUrl) {
+          if (
+            requestBookIdentity !==
+            this.getBookSourceKey(this.$store.getters.readingBook || {})
+          ) {
             return;
           }
           this.loadingMore = false;
@@ -320,14 +369,19 @@ export default {
         return;
       }
       this.closeSearchEventSource();
-      const requestBookUrl = this.$store.getters.readingBook.bookUrl;
+      const requestBook = this.getReadingBookRequest();
+      const requestBookIdentity = this.getBookSourceKey(requestBook);
       const requestBookSourceGroup = this.bookSourceGroup;
       const requestToken = this.searchRequestToken + 1;
       this.searchRequestToken = requestToken;
       const params = {
         accessToken: this.$store.state.token,
         concurrentCount: this.$store.state.searchConfig.concurrentCount,
-        url: requestBookUrl,
+        url: requestBook.bookUrl,
+        name: requestBook.name,
+        author: requestBook.author,
+        origin: requestBook.origin,
+        originName: requestBook.originName,
         bookSourceGroup: requestBookSourceGroup,
         lastIndex: this.bookSourceGroupIndexMap[requestBookSourceGroup]
       };
@@ -339,7 +393,7 @@ export default {
         withCredentials: true
       });
       this.searchEventSource.addEventListener("error", e => {
-        if (!this.isActiveSearchRequest(requestToken, requestBookUrl)) {
+        if (!this.isActiveSearchRequest(requestToken, requestBookIdentity)) {
           return;
         }
         this.loadingMore = false;
@@ -357,20 +411,26 @@ export default {
       });
       let oldBookSourceLength = this.bookSource.length;
       this.searchEventSource.addEventListener("end", e => {
-        if (!this.isActiveSearchRequest(requestToken, requestBookUrl)) {
+        if (!this.isActiveSearchRequest(requestToken, requestBookIdentity)) {
           return;
         }
         this.loadingMore = false;
         try {
+          let hasMore = false;
           if (e.data) {
             const result = JSON.parse(e.data);
             if (result && result.lastIndex != null) {
               this.bookSourceGroupIndexMap[requestBookSourceGroup] =
                 result.lastIndex;
             }
+            hasMore = !!(result && result.hasMore);
           }
           if (this.bookSource.length === oldBookSourceLength) {
-            this.$message.error("没有更多啦");
+            if (hasMore) {
+              this.$message.warning("本轮未找到可用书源，可继续加载");
+            } else {
+              this.$message.info("没有更多书源了");
+            }
           }
         } catch (error) {
           //
@@ -378,7 +438,7 @@ export default {
         this.closeSearchEventSource();
       });
       this.searchEventSource.addEventListener("message", e => {
-        if (!this.isActiveSearchRequest(requestToken, requestBookUrl)) {
+        if (!this.isActiveSearchRequest(requestToken, requestBookIdentity)) {
           return;
         }
         try {

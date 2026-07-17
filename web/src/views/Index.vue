@@ -2480,7 +2480,11 @@ export default {
         origin: book.origin,
         originName: book.originName,
         latestChapterTitle: book.latestChapterTitle,
-        intro: book.intro
+        intro: book.intro,
+        kind: book.kind,
+        wordCount: book.wordCount,
+        variable: book.variable,
+        originOrder: book.originOrder
       });
       const query = {};
       if (this.isSearchResult) {

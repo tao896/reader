@@ -118,6 +118,9 @@ class WebBook(val bookSource: BookSource, val debugLog: Boolean = true, var debu
      * 书籍信息
      */
     suspend fun getBookInfo(book: Book, canReName: Boolean = true): Book {
+        book.origin = bookSource.bookSourceUrl
+        book.originName = bookSource.bookSourceName
+        book.originOrder = bookSource.customOrder
         book.type = bookSource.bookSourceType
         if (!book.infoHtml.isNullOrEmpty()) {
             BookInfo.analyzeBookInfo(
@@ -130,7 +133,24 @@ class WebBook(val bookSource: BookSource, val debugLog: Boolean = true, var debu
             )
             return book
         } else {
-            return getBookInfo(book.bookUrl, canReName)
+            val analyzeUrl = AnalyzeUrl(
+                mUrl = book.bookUrl,
+                baseUrl = bookSource.bookSourceUrl,
+                source = bookSource,
+                ruleData = book,
+                headerMapF = bookSource.getHeaderMap(true)
+            )
+            var res = analyzeUrl.getStrResponseAwait(debugLog = debugger)
+            //检测书源是否已登录
+            bookSource.loginCheckJs?.let { checkJs ->
+                if (checkJs.isNotBlank()) {
+                    res = analyzeUrl.evalJS(checkJs, result = res) as StrResponse
+                }
+            }
+
+            BookInfo.analyzeBookInfo(book, res.body, bookSource, book.bookUrl, res.url, canReName, debugLog = debugger)
+            book.tocHtml = null
+            return book
         }
     }
 
@@ -138,30 +158,7 @@ class WebBook(val bookSource: BookSource, val debugLog: Boolean = true, var debu
      * 书籍信息
      */
     suspend fun getBookInfo(bookUrl: String, canReName: Boolean = true): Book {
-        val book = Book()
-        book.bookUrl = bookUrl
-        book.origin = bookSource.bookSourceUrl
-        book.originName = bookSource.bookSourceName
-        book.originOrder = bookSource.customOrder
-        book.type = bookSource.bookSourceType
-        val analyzeUrl = AnalyzeUrl(
-            mUrl = book.bookUrl,
-            baseUrl = bookSource.bookSourceUrl,
-            source = bookSource,
-            ruleData = book,
-            headerMapF = bookSource.getHeaderMap(true)
-        )
-        var res = analyzeUrl.getStrResponseAwait(debugLog = debugger)
-        //检测书源是否已登录
-        bookSource.loginCheckJs?.let { checkJs ->
-            if (checkJs.isNotBlank()) {
-                res = analyzeUrl.evalJS(checkJs, result = res) as StrResponse
-            }
-        }
-
-        BookInfo.analyzeBookInfo(book, res.body, bookSource, book.bookUrl, res.url, canReName, debugLog = debugger)
-        book.tocHtml = null
-        return book
+        return getBookInfo(Book(bookUrl = bookUrl), canReName)
     }
 
     /**
