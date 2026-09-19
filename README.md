@@ -2,17 +2,6 @@
 
 阅读3服务器版，不需要手机。
 
-加入TG群(限时开放) 👉 [https://t.me/+pQ8HDlANPZ84ZWNl](https://t.me/+pQ8HDlANPZ84ZWNl)
-
-关注公众号，查看教程和书源👇
-
-![](imgs/mpcode.png)
-
-
-> 注意❗️
->
-> Reader 完整源码仅开放到 v2.5.4，新版本当前仅开放部分开源源码，见 https://github.com/hectorqin/reader-legado.
-
 <details><summary>免责声明（Disclaimer）</summary>
 阅读是一款提供网络文学搜索的工具，为广大网络文学爱好者提供一种方便、快捷舒适的试读体验。
 
